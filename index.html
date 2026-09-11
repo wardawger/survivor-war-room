@@ -441,7 +441,7 @@ function renderAnalysisBlock(cached, w, locked){
       <div class="pt">
         <div class="pname">${teamLogoImg(p.team,22)} ${TEAM_NAMES[p.team]||p.team} <span style="font-weight:500;color:var(--ink-soft);font-size:12px;">vs ${TEAM_NAMES[p.opponent]||p.opponent}</span></div>
         <div class="pfactors">${(p.keyFactors||[]).join(' · ')}${p.injuryNotes?' · '+p.injuryNotes:''}${p.weatherNotes?' · '+p.weatherNotes:''}</div>
-        ${p.powerScorePct!=null?`<div class="ppower">Power score: ${p.powerScorePct}% <span style="font-weight:500;">(75% FPI / 25% nfelo)</span></div>`:''}
+        ${p.powerScorePct!=null?`<div class="ppower">Power score: ${p.powerScorePct}% <span style="font-weight:500;">(60% FPI / 20% nfelo / 20% PFN consensus)</span></div>`:''}
         ${p.futureNote?`<div class="pfuture">${p.futureNote}</div>`:''}
       </div>
       <div class="pactions">
@@ -584,26 +584,54 @@ async function fetchNfeloRatings(){
   }catch(e){ console.error('nfelo fetch failed', e); return {}; }
 }
 
-const POWER_WEIGHTS = { fpi: 0.75, nfelo: 0.25 }; // 60/20 FPI/Elo from the original ask, rescaled after dropping the paywalled/unscrapable power-ranking sources
+// Pro Football Network's consensus power ranking (PFSN/ESPN/NFL/CBS/Fox averaged per team), proxied through a
+// Netlify Function that extracts it from the page's own embedded Next.js data — no API key, no scraping service.
+// Restores the 20% "media power ranking" slice of the originally-specified Power Score formula.
+async function fetchPfnRankings(){
+  try{
+    const res = await fetch('/.netlify/functions/pfn-rankings');
+    if(!res.ok) return {};
+    return await res.json();
+  }catch(e){ console.error('PFN rankings fetch failed', e); return {}; }
+}
+
+const POWER_WEIGHTS = { fpi: 0.6, nfelo: 0.2, pfn: 0.2 }; // restored 60/20/20 original-ask split now that PFN's consensus rank is scrapable
 const NFELO_HOME_ADV = 48; // Elo points; standard home-field-advantage estimate used in Elo-style NFL models
+const PFN_RANK_POINTS = 14; // synthetic Elo-equivalent points per consensus-rank position, so rank can reuse the same logistic curve as nfelo
 
 function nfeloWinProb(homeRating, awayRating){
   return 1/(1+Math.pow(10, (awayRating-(homeRating+NFELO_HOME_ADV))/400));
 }
 
-// Blends ESPN's FPI-based predictor with nfelo's Elo-derived power rating into one weighted probability per side.
-// Falls back to whichever single source is available if the other is missing; never fabricates a number if both are.
-async function computePowerScore(homeCode, awayCode, eventId, nfeloRatings, predictorCache){
+// Converts PFN's 1-32 consensus average rank into a synthetic Elo-style rating (lower rank = better = higher rating)
+// and reuses the identical logistic win-probability formula as nfelo, for internal consistency between the two.
+function pfnRankWinProb(homeRank, awayRank){
+  const homeRating = (33 - homeRank) * PFN_RANK_POINTS;
+  const awayRating = (33 - awayRank) * PFN_RANK_POINTS;
+  return nfeloWinProb(homeRating, awayRating);
+}
+
+// Blends ESPN's FPI-based predictor, nfelo's Elo-derived power rating, and PFN's consensus rank into one weighted
+// probability per side. Falls back proportionally to whichever sources are available if one or more are missing;
+// never fabricates a number if all are missing.
+async function computePowerScore(homeCode, awayCode, eventId, nfeloRatings, predictorCache, pfnRankings){
   if(!(eventId in predictorCache)) predictorCache[eventId] = await fetchPredictor(eventId);
   const pred = predictorCache[eventId];
   const fpiHome = pred ? pred.home : null;
   const nfHome = nfeloRatings[homeCode], nfAway = nfeloRatings[awayCode];
   const nfeloHome = (nfHome!=null && nfAway!=null) ? nfeloWinProb(nfHome, nfAway) : null;
-  let home = null;
-  if(fpiHome!=null && nfeloHome!=null) home = POWER_WEIGHTS.fpi*fpiHome + POWER_WEIGHTS.nfelo*nfeloHome;
-  else if(fpiHome!=null) home = fpiHome;
-  else if(nfeloHome!=null) home = nfeloHome;
-  return home==null ? {home:null, away:null} : {home, away:1-home};
+  const pfnHomeRank = pfnRankings[homeCode], pfnAwayRank = pfnRankings[awayCode];
+  const pfnHome = (pfnHomeRank!=null && pfnAwayRank!=null) ? pfnRankWinProb(pfnHomeRank, pfnAwayRank) : null;
+
+  const parts = [
+    [fpiHome, POWER_WEIGHTS.fpi],
+    [nfeloHome, POWER_WEIGHTS.nfelo],
+    [pfnHome, POWER_WEIGHTS.pfn]
+  ].filter(([val]) => val != null);
+  if(!parts.length) return {home:null, away:null};
+  const weightSum = parts.reduce((s,[,w])=>s+w, 0);
+  const home = parts.reduce((s,[val,w])=>s+val*w, 0) / weightSum;
+  return {home, away:1-home};
 }
 
 async function fetchInjuries(eventId){
@@ -679,9 +707,10 @@ async function fillPredictorFallback(m, predictorCache){
 }
 
 // Looks across the rest of the season for each candidate to flag when a team is worth saving for a stronger future spot.
-// Uses the same weighted power score (75% ESPN FPI / 25% nfelo) for every week, current and future alike, so the
-// comparison is apples-to-apples — mixing real market odds for some weeks and a model for others would bias the result.
-async function annotateFutureOutlook(candidates, currentWeek, predictorCache, nfeloRatings){
+// Uses the same weighted power score (60% ESPN FPI / 20% nfelo / 20% PFN consensus rank) for every week, current and
+// future alike, so the comparison is apples-to-apples — mixing real market odds for some weeks and a model for others
+// would bias the result.
+async function annotateFutureOutlook(candidates, currentWeek, predictorCache, nfeloRatings, pfnRankings){
   const weeks = [];
   for(let w=currentWeek+1; w<=TOTAL_WEEKS; w++) weeks.push(w);
   const weekGamesByWeek = {};
@@ -691,7 +720,7 @@ async function annotateFutureOutlook(candidates, currentWeek, predictorCache, nf
 
   for(const c of candidates){
     const currentPower = await computePowerScore(
-      c.isHome?c.team:c.opponent, c.isHome?c.opponent:c.team, c.eventId, nfeloRatings, predictorCache
+      c.isHome?c.team:c.opponent, c.isHome?c.opponent:c.team, c.eventId, nfeloRatings, predictorCache, pfnRankings
     );
     c.powerScore = (c.isHome ? currentPower.home : currentPower.away);
     c.powerScorePct = c.powerScore!=null ? Math.round(c.powerScore*100) : null;
@@ -705,7 +734,7 @@ async function annotateFutureOutlook(candidates, currentWeek, predictorCache, nf
       const key = isHome ? `${opp}@${c.team}` : `${c.team}@${opp}`;
       const m = weekGamesByWeek[w][key];
       if(!m) continue;
-      const power = await computePowerScore(isHome?c.team:opp, isHome?opp:c.team, m.eventId, nfeloRatings, predictorCache);
+      const power = await computePowerScore(isHome?c.team:opp, isHome?opp:c.team, m.eventId, nfeloRatings, predictorCache, pfnRankings);
       const side = isHome ? power.home : power.away;
       if(side==null) continue;
       const probPct = Math.round(side*100);
@@ -775,8 +804,8 @@ async function runAnalysis(w){
       c.injuryNotes = (injuryCache[c.eventId]||{})[c.team] || '';
       c.weatherNotes = c.isHome ? await fetchWeather(c.team, c.date) : await fetchWeather(c.opponent, c.date);
     }
-    const nfeloRatings = await fetchNfeloRatings();
-    await annotateFutureOutlook(top, w, predictorCache, nfeloRatings);
+    const [nfeloRatings, pfnRankings] = await Promise.all([fetchNfeloRatings(), fetchPfnRankings()]);
+    await annotateFutureOutlook(top, w, predictorCache, nfeloRatings, pfnRankings);
 
     const picks = top.map(c=>({
       team: c.team, opponent: c.opponent, winProbability: c.winProbability,

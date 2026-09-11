@@ -124,13 +124,18 @@
     </div>
     <div class="source">
       <div class="name">ESPN Predictor (FPI) <span class="tag">FALLBACK ODDS + POWER SCORE</span></div>
-      <div class="desc">ESPN's own Football Power Index-based pregame win projection. Sportsbooks don't post lines for games more than a couple of weeks out, but ESPN's predictor computes a projection for essentially any scheduled game on the calendar. It fills gaps in the odds priority chain below, and it's also the 75% component of the weighted Power Score used for the season-long future-outlook comparison.</div>
+      <div class="desc">ESPN's own Football Power Index-based pregame win projection. Sportsbooks don't post lines for games more than a couple of weeks out, but ESPN's predictor computes a projection for essentially any scheduled game on the calendar. It fills gaps in the odds priority chain below, and it's also the 60% component of the weighted Power Score used for the season-long future-outlook comparison.</div>
       <div class="endpoint">sports.core.api.espn.com/.../events/{id}/competitions/{id}/predictor</div>
     </div>
     <div class="source">
       <div class="name">nfelo <span class="tag">POWER SCORE</span></div>
-      <div class="desc">An Elo-derived power rating per team, published as a public CSV by the open-source nfelo project (built on 538's Elo framework, adapted for the NFL). Updated by their own model pipeline each week. This is the 25% component of the weighted Power Score — see below for how it's combined with FPI and converted into a win probability.</div>
+      <div class="desc">An Elo-derived power rating per team, published as a public CSV by the open-source nfelo project (built on 538's Elo framework, adapted for the NFL). Updated by their own model pipeline each week. This is the 20% component of the weighted Power Score — see below for how it's combined with FPI and PFN's consensus rank and converted into a win probability.</div>
       <div class="endpoint">raw.githubusercontent.com/greerreNFL/nfelo/main/output_data/elo_snapshot.csv</div>
+    </div>
+    <div class="source">
+      <div class="name">Pro Football Network Consensus Rankings <span class="tag">POWER SCORE</span></div>
+      <div class="desc">PFN's own weekly power ranking already blends five outlets — PFSN, ESPN, NFL.com, CBS Sports, and FOX Sports — into a single average rank per team. Rather than a fragile HTML/markdown scrape, the app's Netlify Function reads the page's own server-rendered Next.js data (a JSON payload the page embeds for itself, containing each team's average rank) and re-publishes just the numbers as clean JSON. No API key, no third-party scraping service, no page-layout parsing to break. This is the 20% component of the weighted Power Score.</div>
+      <div class="endpoint">profootballnetwork.com/power-rankings-nfl — proxied via /.netlify/functions/pfn-rankings</div>
     </div>
     <div class="source">
       <div class="name">ESPN Game Summary (Injuries)</div>
@@ -184,17 +189,23 @@
     <p>Market odds (the priority chain above) are the best available read on <em>this week's</em> game. But they don't exist yet for games several weeks out, and even when they do, mixing "real odds this week" with "a model's guess for week 10" makes for an unfair comparison when deciding whether to save a team. To compare a team's value across its <em>entire remaining schedule</em> on equal footing, the app instead uses one consistent blended model for every week — the Power Score:</p>
   </div>
   <div class="formula-box">
-    powerScore(home) = 0.75 × FPI(home) + 0.25 × nfeloWinProb(home)
+    powerScore(home) = 0.6 × FPI(home) + 0.2 × nfeloWinProb(home) + 0.2 × pfnRankWinProb(home)
   </div>
   <div class="prose">
-    <p>The 75/25 split reflects the original ask behind this feature: 60% FPI and 20% Elo, rescaled to 100% after dropping three additional sources — CBS, The Athletic, and ESPN's editorial power rankings — none of which publish a public API. (The Athletic is fully paywalled; the other two are written articles, not structured data, and would require fragile page-scraping that breaks whenever the format changes.) 60:20 rescales to 75:25 once those three are removed.</p>
+    <p>This 60/20/20 split is the original design behind this feature. It briefly ran as 75/25 (FPI/nfelo only) after CBS, The Athletic, and ESPN's editorial power rankings — the media sources originally slated for that third 20% slice — turned out to have no public API, be fully paywalled, or require fragile page-scraping that breaks whenever the article format changes. Pro Football Network's consensus ranking fills that slot instead: its own page already blends five outlets into one number per team, and — unlike those other sources — it publishes that number as structured data the page embeds for its own use, not just as prose.</p>
     <p>nfelo's rating isn't a win probability by itself — it's an Elo-style score, so it's converted using the standard Elo win-probability formula, with an assumed home-field advantage of 48 Elo points (a commonly cited estimate in Elo-based NFL models):</p>
   </div>
   <div class="formula-box">
     nfeloWinProb(home) = 1 / (1 + 10<sup>(nfeloAway − (nfeloHome + 48)) / 400</sup>)
   </div>
   <div class="prose">
-    <p>If either FPI or nfelo is unavailable for a given game, the Power Score falls back to whichever one is available rather than guessing. The Power Score is shown on every one of the week's top-5 picks alongside the market-odds win probability, so you can see where the two agree or disagree.</p>
+    <p>PFN's consensus rank (1 = best, 32 = worst) isn't a win probability either, so it's first converted into a synthetic Elo-style rating — 14 points per rank position, an estimate rather than a published constant — and then run through the exact same logistic formula above, with the same 48-point home-field assumption, for consistency with the nfelo conversion:</p>
+  </div>
+  <div class="formula-box">
+    pfnRankWinProb(home) = nfeloWinProb( (33 − pfnRankHome) × 14, (33 − pfnRankAway) × 14 )
+  </div>
+  <div class="prose">
+    <p>If any of the three sources is unavailable for a given game, the Power Score redistributes weight proportionally across whichever sources are available rather than guessing. The Power Score is shown on every one of the week's top-5 picks alongside the market-odds win probability, so you can see where the two agree or disagree.</p>
   </div>
 
   <div class="section-head">
