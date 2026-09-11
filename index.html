@@ -154,22 +154,6 @@
   table.roadmap tr.current td{outline:2px solid var(--field);outline-offset:-2px;}
 
   footer{margin:34px 22px 0;font-size:11.5px;color:var(--ink-soft);line-height:1.6;}
-
-  .keybox{
-    display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.22);
-    border:1px solid rgba(255,255,255,.18);border-radius:3px;padding:6px 8px;
-  }
-  .keybox input{
-    background:transparent;border:none;color:var(--chalk);font-size:12.5px;
-    width:220px;outline:none;
-  }
-  .keybox input::placeholder{color:#9aa398;}
-  .keybox .keystatus{font-size:11.5px;color:var(--gold);font-weight:700;white-space:nowrap;}
-  .keybox button{
-    background:var(--gold);color:var(--field-deep);border:none;padding:5px 10px;
-    font-size:11.5px;font-weight:800;cursor:pointer;border-radius:3px;
-  }
-  .keybox button.ghost{background:transparent;color:#C9CFC5;border:1px solid rgba(255,255,255,.25);}
 </style>
 </head>
 <body>
@@ -178,7 +162,6 @@
     <div class="kicker">2026 SEASON · WEEKS 1–18</div>
     <h1>Survivor War Room</h1>
     <p>Pick winners straight up, never reuse a team, and stay alive through the schedule's toughest stretch — the four-in-a-row double-pick gauntlet from Week 12 to 16.</p>
-    <div id="apiKeyRow" style="margin-top:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"></div>
   </header>
 
   <div class="rules" id="rules"></div>
@@ -208,7 +191,7 @@
   </table>
 
   <footer>
-    Recommendations pull live betting odds, injury reports, and weather via web search each time you run analysis for a week — they're only as current as the last run, so re-run close to kickoff. This is a strategy aid, not a guarantee; verify injury designations before locking a pick.
+    Recommendations pull live betting odds and injury reports from ESPN and game-day weather from Open-Meteo each time you run analysis for a week — free public data, no API key required. Weather forecasts only exist inside ~2 weeks of kickoff. This is a strategy aid, not a guarantee; verify injury designations before locking a pick.
   </footer>
 </div>
 
@@ -253,48 +236,34 @@ WAS:['@PHI','@DAL','SEA','IND','NYG','@SF','bye','PHI','LAR','@NYG','CIN','@ARI'
 const DOUBLE_PICK_WEEKS = [3,6,9,12,13,14,15,16];
 const TOTAL_WEEKS = 18;
 const STORAGE_KEY = 'survivor-2026-state';
-const API_KEY_STORAGE = 'survivor-2026-apikey';
+
+// lat/lon of each team's home stadium, for game-day weather; dome/fixed-roof stadiums skip weather entirely
+const STADIUMS = {
+  ARI:{lat:33.5276,lon:-112.2626,dome:true}, ATL:{lat:33.7554,lon:-84.4008,dome:true},
+  BAL:{lat:39.2780,lon:-76.6227,dome:false}, BUF:{lat:42.7738,lon:-78.7870,dome:false},
+  CAR:{lat:35.2258,lon:-80.8528,dome:false}, CHI:{lat:41.8623,lon:-87.6167,dome:false},
+  CIN:{lat:39.0954,lon:-84.5160,dome:false}, CLE:{lat:41.5061,lon:-81.6995,dome:false},
+  DAL:{lat:32.7473,lon:-97.0945,dome:true}, DEN:{lat:39.7439,lon:-105.0201,dome:false},
+  DET:{lat:42.3400,lon:-83.0456,dome:true}, GB:{lat:44.5013,lon:-88.0622,dome:false},
+  HOU:{lat:29.6847,lon:-95.4107,dome:true}, IND:{lat:39.7601,lon:-86.1639,dome:true},
+  JAX:{lat:30.3239,lon:-81.6373,dome:false}, KC:{lat:39.0489,lon:-94.4839,dome:false},
+  LV:{lat:36.0909,lon:-115.1833,dome:true}, LAC:{lat:33.9535,lon:-118.3392,dome:true},
+  LAR:{lat:33.9535,lon:-118.3392,dome:true}, MIA:{lat:25.9580,lon:-80.2389,dome:false},
+  MIN:{lat:44.9737,lon:-93.2577,dome:true}, NE:{lat:42.0909,lon:-71.2643,dome:false},
+  NO:{lat:29.9509,lon:-90.0815,dome:true}, NYG:{lat:40.8135,lon:-74.0745,dome:false},
+  NYJ:{lat:40.8135,lon:-74.0745,dome:false}, PHI:{lat:39.9008,lon:-75.1675,dome:false},
+  PIT:{lat:40.4468,lon:-80.0158,dome:false}, SF:{lat:37.4030,lon:-121.9700,dome:false},
+  SEA:{lat:47.5952,lon:-122.3316,dome:false}, TB:{lat:27.9759,lon:-82.5033,dome:false},
+  TEN:{lat:36.1665,lon:-86.7713,dome:false}, WAS:{lat:38.9078,lon:-76.8645,dome:false}
+};
+const ESPN_ABBR = { WAS:'WSH' }; // ESPN uses WSH where our codes use WAS; every other code matches
+const ESPN_ABBR_REVERSE = Object.fromEntries(Object.entries(ESPN_ABBR).map(([ours,espn])=>[espn,ours]));
+function toEspnAbbr(code){ return ESPN_ABBR[code] || code; }
+function fromEspnAbbr(abbr){ return ESPN_ABBR_REVERSE[abbr] || abbr; }
 
 let state = { usedTeams: [], picks: {}, cache: {} };
 let selectedWeek = 1;
 let stateVersion = null;
-let apiKeyDraftVisible = false;
-
-function getApiKey(){
-  try{ return localStorage.getItem(API_KEY_STORAGE) || ''; }catch(e){ return ''; }
-}
-function setApiKey(key){
-  try{ localStorage.setItem(API_KEY_STORAGE, key); }catch(e){ /* ignore */ }
-}
-function clearApiKey(){
-  try{ localStorage.removeItem(API_KEY_STORAGE); }catch(e){ /* ignore */ }
-}
-
-function renderApiKeyRow(){
-  const el = document.getElementById('apiKeyRow');
-  const key = getApiKey();
-  if(key && !apiKeyDraftVisible){
-    el.innerHTML = `<div class="keybox">
-      <span class="keystatus">🔑 API key set (${key.slice(0,7)}…${key.slice(-4)})</span>
-      <button class="ghost" onclick="apiKeyDraftVisible=true; renderApiKeyRow();">Change</button>
-      <button class="ghost" onclick="clearApiKey(); renderApiKeyRow();">Remove</button>
-    </div>`;
-    return;
-  }
-  el.innerHTML = `<div class="keybox">
-    <input type="password" id="apiKeyInput" placeholder="sk-ant-... (your Anthropic API key)" value="">
-    <button onclick="saveApiKeyFromInput()">Save key</button>
-    ${key?'<button class="ghost" onclick="apiKeyDraftVisible=false; renderApiKeyRow();">Cancel</button>':''}
-  </div>`;
-}
-function saveApiKeyFromInput(){
-  const input = document.getElementById('apiKeyInput');
-  const val = (input.value||'').trim();
-  if(!val) return;
-  setApiKey(val);
-  apiKeyDraftVisible = false;
-  renderApiKeyRow();
-}
 
 function weekMatchups(w){
   const idx = w-1, games=[], byes=[];
@@ -309,12 +278,12 @@ function weekMatchups(w){
 
 async function loadState(){
   try{
-    const res = await window.storage.get(STORAGE_KEY, false);
-    if(res){ state = JSON.parse(res.value); }
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){ state = JSON.parse(raw); }
   }catch(e){ /* no saved state yet */ }
 }
 async function saveState(){
-  try{ await window.storage.set(STORAGE_KEY, JSON.stringify(state), false); }
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   catch(e){ console.error('save failed', e); }
 }
 
@@ -388,7 +357,7 @@ function renderPanel(){
     <h3>Week ${w}${dp?' — Double Pick':''}</h3>
     <div style="display:flex;gap:8px;align-items:center;">
       ${dp?`<span class="flag">Pick 2 different, unused teams</span>`:''}
-      <button class="btn" id="analyzeBtn" onclick="runAnalysis(${w})">${cached?'Re-run live analysis':'Run live analysis'}</button>
+      <button class="btn" id="analyzeBtn" onclick="runAnalysis(${w})">${cached?'Refresh live data':'Pull live data'}</button>
     </div>
   </div>`;
 
@@ -450,65 +419,143 @@ function renderAnalysisBlock(cached, w, locked){
   return html;
 }
 
+function impliedProb(moneyline){
+  if(moneyline==null || isNaN(moneyline)) return null;
+  return moneyline<0 ? (-moneyline)/(-moneyline+100) : 100/(moneyline+100);
+}
+function fmtMoneyline(ml){ return ml==null ? '' : (ml>0?'+':'')+ml; }
+
+async function fetchWeekOdds(w){
+  const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week=${w}&year=2026&seasontype=2`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error(`ESPN scoreboard HTTP ${res.status}`);
+  const json = await res.json();
+  const byMatchup = {}; // key: "AWAY@HOME" using our team codes
+  (json.events||[]).forEach(ev=>{
+    const comp = (ev.competitions||[])[0];
+    if(!comp) return;
+    const home = (comp.competitors||[]).find(c=>c.homeAway==='home');
+    const away = (comp.competitors||[]).find(c=>c.homeAway==='away');
+    if(!home || !away) return;
+    const homeCode = fromEspnAbbr(home.team.abbreviation);
+    const awayCode = fromEspnAbbr(away.team.abbreviation);
+    const odds = (comp.odds||[])[0] || {};
+    const homeML = odds.homeTeamOdds ? odds.homeTeamOdds.moneyLine : null;
+    const awayML = odds.awayTeamOdds ? odds.awayTeamOdds.moneyLine : null;
+    let homeProb = impliedProb(homeML), awayProb = impliedProb(awayML);
+    if(homeProb!=null && awayProb!=null){
+      // remove the sportsbook's vig by normalizing both implied probabilities to sum to 1
+      const total = homeProb + awayProb;
+      homeProb = homeProb/total; awayProb = awayProb/total;
+    } else if(typeof odds.spread === 'number'){
+      homeProb = 1/(1+Math.pow(10, odds.spread/14));
+      awayProb = 1-homeProb;
+    }
+    byMatchup[`${awayCode}@${homeCode}`] = {
+      eventId: ev.id, date: ev.date,
+      home:{code:homeCode, moneyline:homeML, prob:homeProb},
+      away:{code:awayCode, moneyline:awayML, prob:awayProb},
+      details: odds.details || ''
+    };
+  });
+  return byMatchup;
+}
+
+async function fetchInjuries(eventId){
+  try{
+    const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${eventId}`);
+    if(!res.ok) return {};
+    const json = await res.json();
+    const byTeam = {};
+    (json.injuries||[]).forEach(entry=>{
+      const code = fromEspnAbbr((entry.team||{}).abbreviation);
+      if(!code) return;
+      const notable = (entry.injuries||[]).filter(inj=>{
+        const pos = ((inj.athlete||{}).position||{}).abbreviation;
+        return ['QB','RB','WR','TE'].includes(pos) && inj.status && inj.status!=='Probable';
+      });
+      if(notable.length){
+        byTeam[code] = notable.map(inj=>`${(inj.athlete||{}).displayName||'Player'} ${inj.status}`).join(', ');
+      }
+    });
+    return byTeam;
+  }catch(e){ console.error('injury fetch failed', e); return {}; }
+}
+
+async function fetchWeather(code, isoDate){
+  const stadium = STADIUMS[code];
+  if(!stadium || stadium.dome) return stadium ? 'Dome — no weather factor' : '';
+  const gameDate = new Date(isoDate);
+  const daysOut = (gameDate - new Date()) / 86400000;
+  if(daysOut > 15) return 'Forecast not available yet (too far out)';
+  const dateStr = gameDate.toISOString().slice(0,10);
+  try{
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${stadium.lat}&longitude=${stadium.lon}&hourly=temperature_2m,precipitation_probability,wind_speed_10m&start_date=${dateStr}&end_date=${dateStr}&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
+    const res = await fetch(url);
+    if(!res.ok) return '';
+    const json = await res.json();
+    const times = (json.hourly||{}).time || [];
+    if(!times.length) return 'Forecast not available yet';
+    let bestIdx = 0, bestDiff = Infinity;
+    times.forEach((t,i)=>{
+      const diff = Math.abs(new Date(t) - gameDate);
+      if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }
+    });
+    const temp = Math.round(json.hourly.temperature_2m[bestIdx]);
+    const precip = json.hourly.precipitation_probability[bestIdx];
+    const wind = Math.round(json.hourly.wind_speed_10m[bestIdx]);
+    return `${temp}°F, ${precip}% precip, ${wind}mph wind`;
+  }catch(e){ console.error('weather fetch failed', e); return ''; }
+}
+
 async function runAnalysis(w){
-  const apiKey = getApiKey();
-  if(!apiKey){
-    apiKeyDraftVisible = true;
-    renderApiKeyRow();
-    document.getElementById('apiKeyRow').scrollIntoView({behavior:'smooth', block:'center'});
-    alert('Add your Anthropic API key above first — analysis calls the API directly from your browser and needs a key to authenticate.');
-    return;
-  }
   const btn = document.getElementById('analyzeBtn');
-  if(btn){ btn.disabled = true; btn.textContent = 'Analyzing…'; }
-  document.getElementById('analysisArea').insertAdjacentHTML('beforeend', `<div class="loading" id="loadingMsg">Pulling odds, injury reports, and weather…</div>`);
+  if(btn){ btn.disabled = true; btn.textContent = 'Pulling data…'; }
+  document.getElementById('analysisArea').insertAdjacentHTML('beforeend', `<div class="loading" id="loadingMsg">Pulling odds from ESPN and weather from Open-Meteo…</div>`);
 
   const {games} = weekMatchups(w);
   const dp = DOUBLE_PICK_WEEKS.includes(w);
-  const available = games.filter(g=> !state.usedTeams.includes(g.away) || !state.usedTeams.includes(g.home));
-  const gameList = games.map(g=>`${TEAM_NAMES[g.away]} (away) at ${TEAM_NAMES[g.home]} (home)`).join('; ');
-  const usedList = state.usedTeams.map(c=>TEAM_NAMES[c]).join(', ') || 'none yet';
-
-  const prompt = `You are helping with an NFL survivor pool, Week ${w} of the 2026 season, straight-up scoring (favorites and blowout wins matter, not margin).
-Matchups this week: ${gameList}.
-Teams already used and unavailable this week: ${usedList}.
-${dp ? 'This is a DOUBLE PICK week — the user must submit two different, currently-unused teams that both need to win.' : 'This is a single pick week — the user needs one team.'}
-Research current betting odds/spreads, injury reports (especially QB and key skill-position players), and game-day weather for each matchup using web search. Identify the 5 strongest survivor candidates (heaviest favorites least likely to lose outright), ranked best to worst.
-Respond with ONLY valid JSON, no markdown fences, no commentary outside the JSON, in this exact shape:
-{"asOf":"<short date>","picks":[{"team":"<3-4 letter code matching NFL abbreviations like KC, PHI, SF>","opponent":"<opponent 3-4 letter code>","winProbability":<integer 0-100>,"moneyline":"<e.g. -320>","keyFactors":["<short phrase>","<short phrase>"],"injuryNotes":"<short phrase or empty string>","weatherNotes":"<short phrase or empty string>"}],"topRecommendation":["<team code>"${dp?',"<second team code>"':''}],"summary":"<2-3 sentence rationale under 50 words>"}
-Keep every field concise — this must fit in a small response. Use these exact team codes: ${Object.keys(TEAM_NAMES).join(', ')}.`;
 
   try{
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-5",
-        max_tokens: 4096,
-        messages: [{ role: "user", content: prompt }],
-        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }]
-      })
+    const odds = await fetchWeekOdds(w);
+    const candidates = [];
+    games.forEach(g=>{
+      const m = odds[`${g.away}@${g.home}`];
+      if(!m) return;
+      [{side:m.home, opp:m.away, home:true}, {side:m.away, opp:m.home, home:false}].forEach(entry=>{
+        if(state.usedTeams.includes(entry.side.code)) return;
+        candidates.push({
+          team: entry.side.code, opponent: entry.opp.code,
+          winProbability: entry.side.prob!=null ? Math.round(entry.side.prob*100) : null,
+          moneyline: fmtMoneyline(entry.side.moneyline),
+          eventId: m.eventId, date: m.date,
+          spreadDetail: m.details, isHome: entry.home
+        });
+      });
     });
-    const data = await response.json();
-    if(!response.ok){
-      const msg = (data && data.error && data.error.message) || `HTTP ${response.status}`;
-      throw new Error(msg);
+    candidates.sort((a,b)=> (b.winProbability||0) - (a.winProbability||0));
+    const top = candidates.slice(0,5);
+
+    const injuryCache = {};
+    for(const c of top){
+      if(!(c.eventId in injuryCache)) injuryCache[c.eventId] = await fetchInjuries(c.eventId);
+      c.injuryNotes = (injuryCache[c.eventId]||{})[c.team] || '';
+      c.weatherNotes = c.isHome ? await fetchWeather(c.team, c.date) : await fetchWeather(c.opponent, c.date);
     }
-    const textBlocks = (data.content || []).filter(b=>b.type==='text').map(b=>b.text);
-    let raw = textBlocks.join('\n').trim();
-    raw = raw.replace(/```json/gi,'').replace(/```/g,'').trim();
-    const jsonStart = raw.indexOf('{');
-    const jsonEnd = raw.lastIndexOf('}');
-    let parsed = null;
-    if(jsonStart>-1 && jsonEnd>-1){
-      try{ parsed = JSON.parse(raw.slice(jsonStart, jsonEnd+1)); }catch(e){ parsed = null; }
-    }
-    state.cache[w] = { data: parsed, ts: Date.now(), raw };
+
+    const picks = top.map(c=>({
+      team: c.team, opponent: c.opponent, winProbability: c.winProbability,
+      moneyline: c.moneyline,
+      keyFactors: c.spreadDetail ? [c.spreadDetail] : [],
+      injuryNotes: c.injuryNotes, weatherNotes: c.weatherNotes
+    }));
+    const topRecommendation = dp ? picks.slice(0,2).map(p=>p.team) : picks.slice(0,1).map(p=>p.team);
+    const leader = picks[0];
+    const summary = leader
+      ? `${TEAM_NAMES[leader.team]} is this week's strongest survivor play at ${leader.winProbability!=null?leader.winProbability+'%':'an unknown'} implied win probability (${leader.moneyline||'no line yet'}). Odds from ESPN, weather from Open-Meteo — re-run close to kickoff for the freshest read.`
+      : 'No odds available yet for this week — lines are usually posted a week or two out. Try again closer to kickoff.';
+
+    state.cache[w] = { data: {picks, topRecommendation, summary}, ts: Date.now(), raw: null };
     await saveState();
   }catch(e){
     console.error(e);
@@ -543,7 +590,6 @@ function renderRoadmap(){
 
 (async function init(){
   await loadState();
-  renderApiKeyRow();
   renderRules();
   renderTracker();
   renderWeekTabs();
