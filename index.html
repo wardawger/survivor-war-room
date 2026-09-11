@@ -542,84 +542,65 @@ async function fetchWeather(code, isoDate){
   }catch(e){ console.error('weather fetch failed', e); return ''; }
 }
 
-// Blends this season's point differential (real games only) with last season's final differential as a prior,
-// shrinking toward the live number as more current-season games accumulate. Standard early-season power-rating approach.
-async function fetchTeamRatings(){
-  async function seasonDiffs(season){
-    try{
-      const res = await fetch(`https://site.api.espn.com/apis/v2/sports/football/nfl/standings?season=${season}`);
-      if(!res.ok) return {};
-      const json = await res.json();
-      const out = {};
-      (json.children||[]).forEach(conf=>{
-        ((conf.standings||{}).entries||[]).forEach(entry=>{
-          const code = fromEspnAbbr(entry.team.abbreviation);
-          const stats = Object.fromEntries((entry.stats||[]).map(s=>[s.name, s.value]));
-          out[code] = { diff: stats.pointDifferential||0, games: (stats.wins||0)+(stats.losses||0)+(stats.ties||0) };
-        });
-      });
-      return out;
-    }catch(e){ console.error('standings fetch failed', e); return {}; }
-  }
-  const [current, prior] = await Promise.all([seasonDiffs(2026), seasonDiffs(2025)]);
-  const ratings = {};
-  Object.keys(TEAM_NAMES).forEach(code=>{
-    const cur = current[code] || {diff:0, games:0};
-    const pr = prior[code] || {diff:0, games:17};
-    const priorPerGame = pr.games ? pr.diff/pr.games : 0;
-    const curPerGame = cur.games ? cur.diff/cur.games : priorPerGame;
-    const shrinkK = 4; // ~4 games of current-season data outweighs last season's prior
-    const weight = cur.games/(cur.games+shrinkK);
-    ratings[code] = weight*curPerGame + (1-weight)*priorPerGame;
-  });
-  return ratings;
+// ESPN's own FPI-based pregame win projection for a specific game — available for any scheduled game, even
+// weeks before betting lines are posted. Real ESPN analysis, not a homemade estimate.
+async function fetchPredictor(eventId){
+  try{
+    const res = await fetch(`https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/events/${eventId}/competitions/${eventId}/predictor`);
+    if(!res.ok) return null;
+    const json = await res.json();
+    const homeStat = ((json.homeTeam||{}).statistics||[]).find(s=>s.name==='gameProjection');
+    const awayStat = ((json.awayTeam||{}).statistics||[]).find(s=>s.name==='gameProjection');
+    if(!homeStat || !awayStat) return null;
+    return { home: homeStat.value/100, away: awayStat.value/100 };
+  }catch(e){ console.error('predictor fetch failed', e); return null; }
 }
-function modeledHomeWinProb(homeCode, awayCode, ratings){
-  const HOME_FIELD_ADVANTAGE = 2; // points, standard NFL estimate
-  const margin = ((ratings[homeCode]||0) - (ratings[awayCode]||0)) + HOME_FIELD_ADVANTAGE;
-  return 1/(1+Math.pow(10, -margin/14));
+
+// Fills in win probability for a matchup that has no posted moneyline or spread yet, using ESPN's predictor.
+// Mutates m in place and returns whether a fallback was actually applied.
+async function fillPredictorFallback(m, predictorCache){
+  if(!m || m.home.prob!=null) return false;
+  if(!(m.eventId in predictorCache)) predictorCache[m.eventId] = await fetchPredictor(m.eventId);
+  const pred = predictorCache[m.eventId];
+  if(!pred) return false;
+  m.home.prob = pred.home; m.away.prob = pred.away; m.source = m.source || 'ESPN Predictor (FPI)';
+  return true;
 }
 
 // Looks across the rest of the season for each candidate to flag when a team is worth saving for a stronger future spot.
-// Prefers real posted odds where they exist (next ~3 weeks); everywhere else it falls back to the point-differential
-// model above so every remaining week gets an estimate — always labeled "modeled" so it's never mistaken for a live line.
-async function annotateFutureOutlook(candidates, currentWeek){
-  const nearWeeks = [];
-  for(let w=currentWeek+1; w<=Math.min(currentWeek+3, TOTAL_WEEKS); w++) nearWeeks.push(w);
+// Prefers real posted odds/spread where they exist; everywhere else it falls back to ESPN's own predictor model,
+// which projects every scheduled game regardless of whether a sportsbook has posted a line yet.
+async function annotateFutureOutlook(candidates, currentWeek, predictorCache){
+  const weeks = [];
+  for(let w=currentWeek+1; w<=TOTAL_WEEKS; w++) weeks.push(w);
   const weekOddsByWeek = {};
-  for(const lw of nearWeeks){
+  await Promise.all(weeks.map(async lw=>{
     try{ weekOddsByWeek[lw] = await fetchWeekOdds(lw); }catch(e){ weekOddsByWeek[lw] = {}; }
-  }
-  const ratings = await fetchTeamRatings();
+  }));
 
-  candidates.forEach(c=>{
+  for(const c of candidates){
     let best = null;
-    for(let w=currentWeek+1; w<=TOTAL_WEEKS; w++){
+    for(const w of weeks){
       const val = SCHEDULE[c.team][w-1];
       if(val==='bye') continue;
       const isHome = !val.startsWith('@');
       const opp = val.replace('@','');
-      let prob = null, modeled = true;
-      const wk = weekOddsByWeek[w];
-      if(wk){
-        const key = isHome ? `${opp}@${c.team}` : `${c.team}@${opp}`;
-        const m = wk[key];
-        const side = m ? (isHome ? m.home : m.away) : null;
-        if(side && side.prob!=null){ prob = side.prob; modeled = false; }
-      }
-      if(prob==null){
-        const homeProb = modeledHomeWinProb(isHome?c.team:opp, isHome?opp:c.team, ratings);
-        prob = isHome ? homeProb : 1-homeProb;
-      }
-      const probPct = Math.round(prob*100);
-      if(!best || probPct>best.prob) best = {week:w, opponent:opp, prob:probPct, modeled};
+      const key = isHome ? `${opp}@${c.team}` : `${c.team}@${opp}`;
+      const m = weekOddsByWeek[w][key];
+      if(!m) continue;
+      const wasReal = m.home.prob!=null;
+      if(!wasReal) await fillPredictorFallback(m, predictorCache);
+      const side = isHome ? m.home : m.away;
+      if(side.prob==null) continue;
+      const probPct = Math.round(side.prob*100);
+      if(!best || probPct>best.prob) best = {week:w, opponent:opp, prob:probPct, modeled:!wasReal};
     }
-    if(!best){ c.futureNote = ''; return; }
-    const tag = best.modeled ? ', modeled' : '';
+    if(!best){ c.futureNote = ''; continue; }
+    const tag = best.modeled ? ', ESPN Predictor' : '';
     c.futureNote = best.prob > c.winProbability + 5
       ? `Consider saving — Week ${best.week} vs ${best.opponent} looks even stronger (${best.prob}%${tag}).`
       : `Best remaining spot: Week ${best.week} vs ${best.opponent} at ${best.prob}%${tag}.`;
-  });
+  }
 }
 
 async function runAnalysis(w){
@@ -642,6 +623,10 @@ async function runAnalysis(w){
         odds[key].source = `${c.bookCount}-book consensus`;
       });
     }catch(e){ console.error('Odds proxy unavailable, using ESPN odds instead', e); }
+    const predictorCache = {};
+    for(const g of games){
+      await fillPredictorFallback(odds[`${g.away}@${g.home}`], predictorCache);
+    }
     const candidates = [];
     games.forEach(g=>{
       const m = odds[`${g.away}@${g.home}`];
@@ -666,7 +651,7 @@ async function runAnalysis(w){
       c.injuryNotes = (injuryCache[c.eventId]||{})[c.team] || '';
       c.weatherNotes = c.isHome ? await fetchWeather(c.team, c.date) : await fetchWeather(c.opponent, c.date);
     }
-    await annotateFutureOutlook(top, w);
+    await annotateFutureOutlook(top, w, predictorCache);
 
     const picks = top.map(c=>({
       team: c.team, opponent: c.opponent, winProbability: c.winProbability,
@@ -676,7 +661,7 @@ async function runAnalysis(w){
     }));
     const topRecommendation = dp ? picks.slice(0,2).map(p=>p.team) : picks.slice(0,1).map(p=>p.team);
     const leader = picks[0];
-    const oddsSourceLabel = top[0] && top[0].source ? 'The Odds API (multi-book consensus)' : 'ESPN';
+    const oddsSourceLabel = (top[0] && top[0].source) || 'ESPN';
     const summary = leader
       ? `${TEAM_NAMES[leader.team]} is this week's strongest survivor play at ${leader.winProbability!=null?leader.winProbability+'%':'an unknown'} implied win probability (${leader.moneyline||'no line yet'}). Odds from ${oddsSourceLabel}, weather from Open-Meteo — re-run close to kickoff for the freshest read.`
       : 'No odds available yet for this week — lines are usually posted a week or two out. Try again closer to kickoff.';
