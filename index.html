@@ -548,7 +548,6 @@ async function runAnalysis(w){
   const {games} = weekMatchups(w);
   const dp = DOUBLE_PICK_WEEKS.includes(w);
 
-  let usedOddsApi = false;
   try{
     const odds = await fetchWeekOdds(w);
     try{
@@ -559,7 +558,6 @@ async function runAnalysis(w){
         odds[key].home.moneyline = c.home.moneyline; odds[key].home.prob = c.home.prob;
         odds[key].away.moneyline = c.away.moneyline; odds[key].away.prob = c.away.prob;
         odds[key].source = `${c.bookCount}-book consensus`;
-        usedOddsApi = true;
       });
     }catch(e){ console.error('Odds proxy unavailable, using ESPN odds instead', e); }
     const candidates = [];
@@ -595,7 +593,7 @@ async function runAnalysis(w){
     }));
     const topRecommendation = dp ? picks.slice(0,2).map(p=>p.team) : picks.slice(0,1).map(p=>p.team);
     const leader = picks[0];
-    const oddsSourceLabel = usedOddsApi ? 'The Odds API (multi-book consensus)' : 'ESPN';
+    const oddsSourceLabel = top[0] && top[0].source ? 'The Odds API (multi-book consensus)' : 'ESPN';
     const summary = leader
       ? `${TEAM_NAMES[leader.team]} is this week's strongest survivor play at ${leader.winProbability!=null?leader.winProbability+'%':'an unknown'} implied win probability (${leader.moneyline||'no line yet'}). Odds from ${oddsSourceLabel}, weather from Open-Meteo — re-run close to kickoff for the freshest read.`
       : 'No odds available yet for this week — lines are usually posted a week or two out. Try again closer to kickoff.';
