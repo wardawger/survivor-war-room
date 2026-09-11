@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Survivor War Room — 2026</title>
+<style>
+  :root{
+    --field:#173324;
+    --field-deep:#0F2317;
+    --chalk:#EEEADD;
+    --chalk-dim:#DCD6C4;
+    --ink:#182018;
+    --ink-soft:#4B564C;
+    --gold:#C79A3D;
+    --gold-deep:#9C7623;
+    --danger:#9C4038;
+    --line:#CFC8B3;
+    --card:#F7F4E9;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--chalk);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1000px;margin:0 auto;padding:0 0 60px;}
+
+  /* HEADER */
+  header{
+    background:linear-gradient(180deg,var(--field) 0%,var(--field-deep) 100%);
+    color:var(--chalk);
+    padding:34px 22px 26px;
+    border-bottom:5px solid var(--gold);
+  }
+  header .kicker{
+    font-size:12.5px;letter-spacing:.14em;color:var(--gold);
+    font-weight:700;margin-bottom:6px;
+  }
+  header h1{
+    margin:0 0 4px;
+    font-size:32px;
+    font-weight:800;
+    letter-spacing:-0.01em;
+    line-height:1.05;
+  }
+  header p{margin:6px 0 0;color:#C9CFC5;font-size:14.5px;max-width:560px;line-height:1.5;}
+
+  /* RULES STRIP */
+  .rules{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:1px;
+    background:var(--line);
+    border:1px solid var(--line);
+    margin:22px 22px 0;
+  }
+  .rule{background:var(--card);padding:14px 16px;}
+  .rule .label{font-size:11px;color:var(--ink-soft);margin-bottom:4px;}
+  .rule .value{font-size:15px;font-weight:700;color:var(--ink);line-height:1.25;}
+  .rule .value.small{font-size:13px;font-weight:600;}
+
+  /* SECTION TITLES */
+  .section-head{
+    display:flex;align-items:baseline;justify-content:space-between;
+    margin:34px 22px 12px;
+    border-bottom:2px solid var(--ink);
+    padding-bottom:8px;
+  }
+  .section-head h2{margin:0;font-size:19px;font-weight:800;}
+  .section-head .sub{font-size:12.5px;color:var(--ink-soft);}
+
+  /* TEAM TRACKER */
+  .tracker{margin:0 22px;display:flex;flex-wrap:wrap;gap:6px;}
+  .chip{
+    padding:6px 10px;border:1px solid var(--line);background:var(--card);
+    font-size:12.5px;font-weight:700;cursor:pointer;user-select:none;
+    color:var(--ink);border-radius:3px;
+  }
+  .chip.used{
+    background:var(--danger);border-color:var(--danger);color:#F3E4E1;
+    text-decoration:line-through;text-decoration-color:#F3E4E188;
+  }
+  .tracker-note{margin:8px 22px 0;font-size:12px;color:var(--ink-soft);}
+
+  /* WEEK TABS */
+  .weektabs{
+    margin:0 22px;display:flex;flex-wrap:wrap;gap:6px;
+  }
+  .weektab{
+    position:relative;
+    padding:8px 12px;border:1px solid var(--line);background:var(--card);
+    font-size:13px;font-weight:700;cursor:pointer;color:var(--ink-soft);border-radius:3px;
+  }
+  .weektab.active{background:var(--field);color:var(--chalk);border-color:var(--field);}
+  .weektab .dp{
+    position:absolute;top:-7px;right:-7px;background:var(--gold);color:var(--field-deep);
+    font-size:9.5px;font-weight:800;border-radius:8px;padding:1px 4px;line-height:1.3;
+  }
+
+  /* WEEK PANEL */
+  .panel{margin:20px 22px 0;border:1px solid var(--line);background:var(--card);}
+  .panel-top{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:10px;
+  }
+  .panel-top h3{margin:0;font-size:17px;font-weight:800;}
+  .panel-top .flag{font-size:11.5px;color:var(--gold-deep);font-weight:700;}
+  .btn{
+    background:var(--field);color:var(--chalk);border:none;padding:9px 14px;
+    font-size:13px;font-weight:700;cursor:pointer;border-radius:3px;
+  }
+  .btn:hover{background:var(--field-deep);}
+  .btn:disabled{opacity:.55;cursor:default;}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
+  .btn.small{padding:5px 9px;font-size:11.5px;}
+
+  .matchup-list{padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;}
+  .matchup{
+    border:1px solid var(--line);padding:9px 11px;font-size:13.5px;background:#FBF9F1;
+    display:flex;align-items:center;justify-content:space-between;
+  }
+  .matchup .vs{color:var(--ink-soft);font-size:11px;margin:0 6px;}
+  .byes{padding:0 16px 14px;font-size:12.5px;color:var(--ink-soft);}
+
+  .analysis{padding:14px 16px;border-top:1px solid var(--line);}
+  .analysis .meta{font-size:11.5px;color:var(--ink-soft);margin-bottom:10px;}
+  .pick-row{
+    display:flex;align-items:center;justify-content:space-between;
+    border:1px solid var(--line);background:#FBF9F1;padding:10px 12px;margin-bottom:6px;
+  }
+  .pick-row.top{border-color:var(--gold-deep);background:#FBF3DD;}
+  .pick-row .pt{display:flex;flex-direction:column;}
+  .pick-row .pname{font-weight:800;font-size:14.5px;}
+  .pick-row .pfactors{font-size:12px;color:var(--ink-soft);margin-top:2px;max-width:480px;}
+  .pick-row .pstats{text-align:right;font-size:12.5px;color:var(--ink-soft);white-space:nowrap;margin-left:10px;}
+  .pick-row .pstats b{color:var(--ink);font-size:15px;}
+  .summary-box{
+    margin-top:10px;padding:10px 12px;background:var(--field);color:#E7E2CF;
+    font-size:13px;line-height:1.5;border-left:4px solid var(--gold);
+  }
+  .empty-analysis{padding:16px;text-align:center;color:var(--ink-soft);font-size:13px;}
+  .loading{padding:20px;text-align:center;font-size:13px;color:var(--ink-soft);}
+
+  /* ROADMAP */
+  table.roadmap{width:calc(100% - 44px);margin:0 22px;border-collapse:collapse;font-size:13px;}
+  table.roadmap th,table.roadmap td{border:1px solid var(--line);padding:8px 9px;text-align:left;}
+  table.roadmap th{background:var(--field);color:var(--chalk);font-weight:700;font-size:11.5px;}
+  table.roadmap tr:nth-child(even) td{background:#F2EEDF;}
+  table.roadmap td.dp-cell{color:var(--gold-deep);font-weight:700;}
+  table.roadmap td.pick-cell{font-weight:700;}
+  table.roadmap tr.current td{outline:2px solid var(--field);outline-offset:-2px;}
+
+  footer{margin:34px 22px 0;font-size:11.5px;color:var(--ink-soft);line-height:1.6;}
+
+  .keybox{
+    display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.22);
+    border:1px solid rgba(255,255,255,.18);border-radius:3px;padding:6px 8px;
+  }
+  .keybox input{
+    background:transparent;border:none;color:var(--chalk);font-size:12.5px;
+    width:220px;outline:none;
+  }
+  .keybox input::placeholder{color:#9aa398;}
+  .keybox .keystatus{font-size:11.5px;color:var(--gold);font-weight:700;white-space:nowrap;}
+  .keybox button{
+    background:var(--gold);color:var(--field-deep);border:none;padding:5px 10px;
+    font-size:11.5px;font-weight:800;cursor:pointer;border-radius:3px;
+  }
+  .keybox button.ghost{background:transparent;color:#C9CFC5;border:1px solid rgba(255,255,255,.25);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="kicker">2026 SEASON · WEEKS 1–18</div>
+    <h1>Survivor War Room</h1>
+    <p>Pick winners straight up, never reuse a team, and stay alive through the schedule's toughest stretch — the four-in-a-row double-pick gauntlet from Week 12 to 16.</p>
+    <div id="apiKeyRow" style="margin-top:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"></div>
+  </header>
+
+  <div class="rules" id="rules"></div>
+
+  <div class="section-head">
+    <h2>Teams used</h2>
+    <span class="sub">Tap a team to mark it used or free it back up</span>
+  </div>
+  <div class="tracker" id="tracker"></div>
+  <div class="tracker-note" id="trackerNote"></div>
+
+  <div class="section-head">
+    <h2>Weekly matchups</h2>
+    <span class="sub">Gold badge = double-pick week (2 teams required)</span>
+  </div>
+  <div class="weektabs" id="weektabs"></div>
+
+  <div class="panel" id="panel"></div>
+
+  <div class="section-head">
+    <h2>Season roadmap</h2>
+    <span class="sub">Locked picks carry forward automatically</span>
+  </div>
+  <table class="roadmap">
+    <thead><tr><th>Wk</th><th>Games</th><th>Double pick</th><th>Locked pick(s)</th><th>Status</th></tr></thead>
+    <tbody id="roadmapBody"></tbody>
+  </table>
+
+  <footer>
+    Recommendations pull live betting odds, injury reports, and weather via web search each time you run analysis for a week — they're only as current as the last run, so re-run close to kickoff. This is a strategy aid, not a guarantee; verify injury designations before locking a pick.
+  </footer>
+</div>
+
+<script>
+const TEAM_NAMES = {ARI:'Arizona Cardinals',ATL:'Atlanta Falcons',BAL:'Baltimore Ravens',BUF:'Buffalo Bills',CAR:'Carolina Panthers',CHI:'Chicago Bears',CIN:'Cincinnati Bengals',CLE:'Cleveland Browns',DAL:'Dallas Cowboys',DEN:'Denver Broncos',DET:'Detroit Lions',GB:'Green Bay Packers',HOU:'Houston Texans',IND:'Indianapolis Colts',JAX:'Jacksonville Jaguars',KC:'Kansas City Chiefs',LV:'Las Vegas Raiders',LAC:'Los Angeles Chargers',LAR:'Los Angeles Rams',MIA:'Miami Dolphins',MIN:'Minnesota Vikings',NE:'New England Patriots',NO:'New Orleans Saints',NYG:'New York Giants',NYJ:'New York Jets',PHI:'Philadelphia Eagles',PIT:'Pittsburgh Steelers',SF:'San Francisco 49ers',SEA:'Seattle Seahawks',TB:'Tampa Bay Buccaneers',TEN:'Tennessee Titans',WAS:'Washington Commanders'};
+
+const SCHEDULE = {
+ARI:['@LAC','SEA','@SF','@NYG','DET','@LAR','DEN','@DAL','@SEA','LAR','@KC','WAS','PHI','bye','NYJ','@NO','LV','SF'],
+ATL:['@PIT','CAR','@GB','@NO','BAL','CHI','SF','@TB','CIN','KC','bye','@MIN','DET','@CLE','@WAS','TB','NO','@CAR'],
+BAL:['@IND','NO','@DAL','TEN','@ATL','@CLE','CIN','@BUF','JAX','LAC','@CAR','@HOU','bye','TB','@PIT','CLE','@CIN','PIT'],
+BUF:['@HOU','DET','LAC','NE','@LAR','@LV','bye','BAL','@MIN','@NYJ','MIA','KC','@NE','@GB','CHI','@DEN','@MIA','NYJ'],
+CAR:['CHI','@ATL','@CLE','DET','bye','@PHI','TB','@GB','DEN','@NO','BAL','@TB','@MIN','NO','CIN','@PIT','SEA','ATL'],
+CHI:['@CAR','MIN','PHI','NYJ','@GB','@ATL','NE','@SEA','TB','bye','NO','@DET','JAX','@MIA','@BUF','GB','DET','@MIN'],
+CIN:['TB','@HOU','@PIT','JAX','@MIA','bye','@BAL','TEN','@ATL','PIT','@WAS','NO','@CLE','KC','@CAR','@IND','BAL','CLE'],
+CLE:['@JAX','@TB','CAR','PIT','@NYJ','BAL','@TEN','@PIT','@NO','HOU','bye','LV','CIN','ATL','@NYG','@BAL','IND','@CIN'],
+DAL:['@NYG','WAS','BAL','@HOU','TB','@GB','@PHI','ARI','@IND','SF','TEN','PHI','@SEA','bye','@LAR','JAX','NYG','@WAS'],
+DEN:['@KC','JAX','LAR','@SF','@LAC','SEA','@ARI','KC','@CAR','bye','LV','@PIT','MIA','@NYJ','@LV','BUF','@NE','LAC'],
+DET:['NO','@BUF','NYJ','@CAR','@ARI','bye','GB','MIN','@MIA','NE','TB','CHI','@ATL','TEN','@MIN','NYG','@CHI','@GB'],
+GB:['@MIN','@NYJ','ATL','@TB','CHI','DAL','@DET','CAR','@NE','MIN','bye','@LAR','@NO','BUF','MIA','@CHI','HOU','DET'],
+HOU:['BUF','CIN','@IND','DAL','@TEN','@JAX','NYG','bye','@LAC','@CLE','IND','BAL','@PIT','@WAS','JAX','@PHI','@GB','TEN'],
+IND:['BAL','@KC','HOU','@WAS','@PIT','TEN','@MIN','@JAX','DAL','MIA','@HOU','NYG','bye','@PHI','@TEN','CIN','@CLE','JAX'],
+JAX:['CLE','@DEN','NE','@CIN','PHI','HOU','bye','IND','@BAL','@TEN','@NYG','TEN','@CHI','PIT','@HOU','@DAL','WAS','@IND'],
+KC:['DEN','IND','@MIA','@LV','bye','LAC','@SEA','@DEN','NYJ','@ATL','ARI','@BUF','@LAR','@CIN','NE','SF','@LAC','LV'],
+LV:['MIA','@LAC','@NO','KC','@NE','BUF','LAR','@NYJ','@SF','SEA','@DEN','@CLE','bye','LAC','DEN','TEN','@ARI','@KC'],
+LAC:['ARI','LV','@BUF','@SEA','DEN','@KC','bye','@LAR','HOU','@BAL','NYJ','NE','@TB','@LV','SF','@MIA','KC','@DEN'],
+LAR:['SF','NYG','@DEN','@PHI','BUF','ARI','@LV','LAC','@WAS','@ARI','bye','GB','KC','@SF','DAL','@SEA','@TB','SEA'],
+MIA:['@LV','@SF','KC','@MIN','CIN','bye','@NYJ','NE','DET','@IND','@BUF','NYJ','@DEN','CHI','@GB','LAC','BUF','@NE'],
+MIN:['GB','@CHI','@TB','MIA','@NO','bye','IND','@DET','BUF','@GB','@SF','ATL','CAR','@NE','DET','WAS','@NYJ','CHI'],
+NE:['@SEA','PIT','@JAX','@BUF','LV','NYJ','@CHI','@MIA','GB','@DET','bye','@LAC','BUF','MIN','@KC','@NYJ','DEN','MIA'],
+NO:['@DET','@BAL','LV','ATL','MIN','@NYG','PIT','bye','CLE','CAR','@CHI','@CIN','GB','@CAR','@TB','ARI','@ATL','TB'],
+NYG:['DAL','@LAR','TEN','ARI','@WAS','NO','@HOU','bye','@PHI','WAS','JAX','@IND','SF','@SEA','CLE','@DET','@DAL','PHI'],
+NYJ:['@TEN','GB','@DET','@CHI','CLE','@NE','MIA','LV','@KC','BUF','@LAC','@MIA','bye','DEN','@ARI','NE','MIN','@BUF'],
+PHI:['WAS','@TEN','@CHI','LAR','@JAX','CAR','DAL','@WAS','NYG','bye','PIT','@DAL','@ARI','IND','SEA','HOU','@SF','@NYG'],
+PIT:['ATL','@NE','CIN','@CLE','IND','@TB','@NO','CLE','bye','@CIN','@PHI','DEN','HOU','@JAX','BAL','CAR','@TEN','@BAL'],
+SF:['@LAR','MIA','ARI','DEN','@SEA','WAS','@ATL','bye','LV','@DAL','MIN','SEA','@NYG','LAR','@LAC','@KC','PHI','@ARI'],
+SEA:['NE','@ARI','@WAS','LAC','SF','@DEN','KC','CHI','ARI','@LV','bye','@SF','DAL','NYG','@PHI','LAR','@CAR','@LAR'],
+TB:['@CIN','CLE','MIN','GB','@DAL','PIT','@CAR','ATL','@CHI','bye','@DET','CAR','LAC','@BAL','NO','@ATL','LAR','@NO'],
+TEN:['NYJ','PHI','@NYG','@BAL','HOU','@IND','CLE','@CIN','bye','JAX','@DAL','@JAX','WAS','@DET','IND','@LV','PIT','@HOU'],
+WAS:['@PHI','@DAL','SEA','IND','NYG','@SF','bye','PHI','LAR','@NYG','CIN','@ARI','@TEN','HOU','ATL','@MIN','@JAX','DAL']
+};
+
+const DOUBLE_PICK_WEEKS = [3,6,9,12,13,14,15,16];
+const TOTAL_WEEKS = 18;
+const STORAGE_KEY = 'survivor-2026-state';
+const API_KEY_STORAGE = 'survivor-2026-apikey';
+
+let state = { usedTeams: [], picks: {}, cache: {} };
+let selectedWeek = 1;
+let stateVersion = null;
+let apiKeyDraftVisible = false;
+
+function getApiKey(){
+  try{ return localStorage.getItem(API_KEY_STORAGE) || ''; }catch(e){ return ''; }
+}
+function setApiKey(key){
+  try{ localStorage.setItem(API_KEY_STORAGE, key); }catch(e){ /* ignore */ }
+}
+function clearApiKey(){
+  try{ localStorage.removeItem(API_KEY_STORAGE); }catch(e){ /* ignore */ }
+}
+
+function renderApiKeyRow(){
+  const el = document.getElementById('apiKeyRow');
+  const key = getApiKey();
+  if(key && !apiKeyDraftVisible){
+    el.innerHTML = `<div class="keybox">
+      <span class="keystatus">🔑 API key set (${key.slice(0,7)}…${key.slice(-4)})</span>
+      <button class="ghost" onclick="apiKeyDraftVisible=true; renderApiKeyRow();">Change</button>
+      <button class="ghost" onclick="clearApiKey(); renderApiKeyRow();">Remove</button>
+    </div>`;
+    return;
+  }
+  el.innerHTML = `<div class="keybox">
+    <input type="password" id="apiKeyInput" placeholder="sk-ant-... (your Anthropic API key)" value="">
+    <button onclick="saveApiKeyFromInput()">Save key</button>
+    ${key?'<button class="ghost" onclick="apiKeyDraftVisible=false; renderApiKeyRow();">Cancel</button>':''}
+  </div>`;
+}
+function saveApiKeyFromInput(){
+  const input = document.getElementById('apiKeyInput');
+  const val = (input.value||'').trim();
+  if(!val) return;
+  setApiKey(val);
+  apiKeyDraftVisible = false;
+  renderApiKeyRow();
+}
+
+function weekMatchups(w){
+  const idx = w-1, games=[], byes=[];
+  for(const [code,arr] of Object.entries(SCHEDULE)){
+    const val = arr[idx];
+    if(val === 'bye'){ byes.push(code); continue; }
+    if(val.startsWith('@')){ games.push({away:code, home:val.slice(1)}); }
+  }
+  games.sort((a,b)=> TEAM_NAMES[a.home].localeCompare(TEAM_NAMES[b.home]));
+  return {games, byes};
+}
+
+async function loadState(){
+  try{
+    const res = await window.storage.get(STORAGE_KEY, false);
+    if(res){ state = JSON.parse(res.value); }
+  }catch(e){ /* no saved state yet */ }
+}
+async function saveState(){
+  try{ await window.storage.set(STORAGE_KEY, JSON.stringify(state), false); }
+  catch(e){ console.error('save failed', e); }
+}
+
+function renderRules(){
+  const rules = [
+    {label:'Double pick weeks', value:'3, 6, 9, 12, 13, 14, 15, 16', small:true},
+    {label:'Entry lives', value:'1 Total Life'},
+    {label:'Pick objective', value:'Pick Winners'},
+    {label:'Team use limit', value:'Once'},
+    {label:'Pick scoring', value:'Straight Up'},
+  ];
+  document.getElementById('rules').innerHTML = rules.map(r=>`
+    <div class="rule">
+      <div class="label">${r.label}</div>
+      <div class="value ${r.small?'small':''}">${r.value}</div>
+    </div>`).join('');
+}
+
+function renderTracker(){
+  const el = document.getElementById('tracker');
+  el.innerHTML = Object.keys(TEAM_NAMES).sort().map(code=>{
+    const used = state.usedTeams.includes(code);
+    return `<div class="chip ${used?'used':''}" data-code="${code}" onclick="toggleUsed('${code}')">${code}</div>`;
+  }).join('');
+  document.getElementById('trackerNote').textContent =
+    `${state.usedTeams.length} of 32 teams used · ${32 - state.usedTeams.length} remaining`;
+}
+
+function toggleUsed(code){
+  const i = state.usedTeams.indexOf(code);
+  if(i>-1) state.usedTeams.splice(i,1); else state.usedTeams.push(code);
+  saveState();
+  renderTracker();
+  renderPanel();
+  renderRoadmap();
+}
+
+function renderWeekTabs(){
+  const el = document.getElementById('weektabs');
+  let html='';
+  for(let w=1; w<=TOTAL_WEEKS; w++){
+    const dp = DOUBLE_PICK_WEEKS.includes(w);
+    html += `<div class="weektab ${w===selectedWeek?'active':''}" onclick="selectWeek(${w})">Wk ${w}${dp?'<span class="dp">2×</span>':''}</div>`;
+  }
+  el.innerHTML = html;
+}
+function selectWeek(w){ selectedWeek = w; renderWeekTabs(); renderPanel(); }
+
+function lockPick(week, code){
+  if(!state.picks[week]) state.picks[week] = [];
+  if(!state.picks[week].includes(code)) state.picks[week].push(code);
+  if(!state.usedTeams.includes(code)) state.usedTeams.push(code);
+  saveState();
+  renderTracker(); renderPanel(); renderRoadmap();
+}
+function unlockPick(week, code){
+  if(state.picks[week]) state.picks[week] = state.picks[week].filter(c=>c!==code);
+  state.usedTeams = state.usedTeams.filter(c=>c!==code);
+  saveState();
+  renderTracker(); renderPanel(); renderRoadmap();
+}
+
+function renderPanel(){
+  const w = selectedWeek;
+  const {games, byes} = weekMatchups(w);
+  const dp = DOUBLE_PICK_WEEKS.includes(w);
+  const locked = state.picks[w] || [];
+  const cached = state.cache[w];
+
+  let html = `<div class="panel-top">
+    <h3>Week ${w}${dp?' — Double Pick':''}</h3>
+    <div style="display:flex;gap:8px;align-items:center;">
+      ${dp?`<span class="flag">Pick 2 different, unused teams</span>`:''}
+      <button class="btn" id="analyzeBtn" onclick="runAnalysis(${w})">${cached?'Re-run live analysis':'Run live analysis'}</button>
+    </div>
+  </div>`;
+
+  html += `<div class="matchup-list">`;
+  games.forEach(g=>{
+    const usedAway = state.usedTeams.includes(g.away) && !locked.includes(g.away);
+    const usedHome = state.usedTeams.includes(g.home) && !locked.includes(g.home);
+    html += `<div class="matchup">
+      <span style="${usedAway?'opacity:.4;text-decoration:line-through;':''}">${TEAM_NAMES[g.away]}</span>
+      <span class="vs">at</span>
+      <span style="${usedHome?'opacity:.4;text-decoration:line-through;':''}">${TEAM_NAMES[g.home]}</span>
+    </div>`;
+  });
+  html += `</div>`;
+  if(byes.length) html += `<div class="byes">On bye: ${byes.map(b=>TEAM_NAMES[b]).join(', ')}</div>`;
+
+  html += `<div class="analysis" id="analysisArea">`;
+  if(locked.length){
+    html += `<div class="meta">Locked for Week ${w}:</div>`;
+    locked.forEach(code=>{
+      html += `<div class="pick-row top"><div class="pt"><div class="pname">${TEAM_NAMES[code]}</div></div>
+        <button class="btn ghost small" onclick="unlockPick(${w},'${code}')">Unlock</button></div>`;
+    });
+  }
+  if(cached){
+    html += renderAnalysisBlock(cached, w, locked);
+  } else if(!locked.length){
+    html += `<div class="empty-analysis">No live analysis yet for Week ${w}. Run it to pull current odds, injuries, and weather.</div>`;
+  }
+  html += `</div>`;
+
+  document.getElementById('panel').innerHTML = html;
+}
+
+function renderAnalysisBlock(cached, w, locked){
+  const data = cached.data;
+  let html = `<div class="meta">Live read as of ${new Date(cached.ts).toLocaleString()}</div>`;
+  if(!data || !Array.isArray(data.picks)){
+    html += `<div class="empty-analysis">Analysis didn't parse cleanly — try re-running.</div>`;
+    return html;
+  }
+  const top = data.topRecommendation || [];
+  data.picks.forEach(p=>{
+    if(locked.includes(p.team)) return;
+    const isTop = top.includes(p.team);
+    html += `<div class="pick-row ${isTop?'top':''}">
+      <div class="pt">
+        <div class="pname">${TEAM_NAMES[p.team]||p.team} <span style="font-weight:500;color:var(--ink-soft);font-size:12px;">vs ${TEAM_NAMES[p.opponent]||p.opponent}</span></div>
+        <div class="pfactors">${(p.keyFactors||[]).join(' · ')}${p.injuryNotes?' · '+p.injuryNotes:''}${p.weatherNotes?' · '+p.weatherNotes:''}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="pstats"><b>${p.winProbability?p.winProbability+'%':'—'}</b><br>${p.moneyline||''}</div>
+        <button class="btn small" onclick='lockPick(${w},"${p.team}")'>Lock</button>
+      </div>
+    </div>`;
+  });
+  if(data.summary) html += `<div class="summary-box">${data.summary}</div>`;
+  return html;
+}
+
+async function runAnalysis(w){
+  const apiKey = getApiKey();
+  if(!apiKey){
+    apiKeyDraftVisible = true;
+    renderApiKeyRow();
+    document.getElementById('apiKeyRow').scrollIntoView({behavior:'smooth', block:'center'});
+    alert('Add your Anthropic API key above first — analysis calls the API directly from your browser and needs a key to authenticate.');
+    return;
+  }
+  const btn = document.getElementById('analyzeBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Analyzing…'; }
+  document.getElementById('analysisArea').insertAdjacentHTML('beforeend', `<div class="loading" id="loadingMsg">Pulling odds, injury reports, and weather…</div>`);
+
+  const {games} = weekMatchups(w);
+  const dp = DOUBLE_PICK_WEEKS.includes(w);
+  const available = games.filter(g=> !state.usedTeams.includes(g.away) || !state.usedTeams.includes(g.home));
+  const gameList = games.map(g=>`${TEAM_NAMES[g.away]} (away) at ${TEAM_NAMES[g.home]} (home)`).join('; ');
+  const usedList = state.usedTeams.map(c=>TEAM_NAMES[c]).join(', ') || 'none yet';
+
+  const prompt = `You are helping with an NFL survivor pool, Week ${w} of the 2026 season, straight-up scoring (favorites and blowout wins matter, not margin).
+Matchups this week: ${gameList}.
+Teams already used and unavailable this week: ${usedList}.
+${dp ? 'This is a DOUBLE PICK week — the user must submit two different, currently-unused teams that both need to win.' : 'This is a single pick week — the user needs one team.'}
+Research current betting odds/spreads, injury reports (especially QB and key skill-position players), and game-day weather for each matchup using web search. Identify the 5 strongest survivor candidates (heaviest favorites least likely to lose outright), ranked best to worst.
+Respond with ONLY valid JSON, no markdown fences, no commentary outside the JSON, in this exact shape:
+{"asOf":"<short date>","picks":[{"team":"<3-4 letter code matching NFL abbreviations like KC, PHI, SF>","opponent":"<opponent 3-4 letter code>","winProbability":<integer 0-100>,"moneyline":"<e.g. -320>","keyFactors":["<short phrase>","<short phrase>"],"injuryNotes":"<short phrase or empty string>","weatherNotes":"<short phrase or empty string>"}],"topRecommendation":["<team code>"${dp?',"<second team code>"':''}],"summary":"<2-3 sentence rationale under 50 words>"}
+Keep every field concise — this must fit in a small response. Use these exact team codes: ${Object.keys(TEAM_NAMES).join(', ')}.`;
+
+  try{
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1000,
+        messages: [{ role: "user", content: prompt }],
+        tools: [{ type: "web_search_20250305", name: "web_search" }]
+      })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      const msg = (data && data.error && data.error.message) || `HTTP ${response.status}`;
+      throw new Error(msg);
+    }
+    const textBlocks = (data.content || []).filter(b=>b.type==='text').map(b=>b.text);
+    let raw = textBlocks.join('\n').trim();
+    raw = raw.replace(/```json/gi,'').replace(/```/g,'').trim();
+    const jsonStart = raw.indexOf('{');
+    const jsonEnd = raw.lastIndexOf('}');
+    let parsed = null;
+    if(jsonStart>-1 && jsonEnd>-1){
+      try{ parsed = JSON.parse(raw.slice(jsonStart, jsonEnd+1)); }catch(e){ parsed = null; }
+    }
+    state.cache[w] = { data: parsed, ts: Date.now(), raw };
+    await saveState();
+  }catch(e){
+    console.error(e);
+    state.cache[w] = { data: null, ts: Date.now(), raw: 'Request failed: '+e.message };
+    await saveState();
+  }
+  renderPanel();
+  renderRoadmap();
+}
+
+function renderRoadmap(){
+  const body = document.getElementById('roadmapBody');
+  let html='';
+  for(let w=1; w<=TOTAL_WEEKS; w++){
+    const {games} = weekMatchups(w);
+    const dp = DOUBLE_PICK_WEEKS.includes(w);
+    const locked = state.picks[w] || [];
+    const cached = state.cache[w];
+    let status = 'Not analyzed';
+    if(locked.length) status = dp && locked.length<2 ? 'Partially locked' : 'Locked';
+    else if(cached) status = 'Analysis ready';
+    html += `<tr class="${w===selectedWeek?'current':''}">
+      <td>${w}</td>
+      <td>${games.length}</td>
+      <td class="dp-cell">${dp?'Yes':'—'}</td>
+      <td class="pick-cell">${locked.length? locked.map(c=>c).join(' + ') : '—'}</td>
+      <td>${status}</td>
+    </tr>`;
+  }
+  body.innerHTML = html;
+}
+
+(async function init(){
+  await loadState();
+  renderApiKeyRow();
+  renderRules();
+  renderTracker();
+  renderWeekTabs();
+  renderPanel();
+  renderRoadmap();
+})();
+</script>
+</body>
+</html>
