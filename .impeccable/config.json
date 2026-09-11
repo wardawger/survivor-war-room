@@ -29,6 +29,33 @@
         ],
         "createdAt": "2026-09-11T02:51:14.202Z",
         "reason": "deliberate ticket/scorecard-stock motif paired with field-green+gold header, established in original design brief; domain-appropriate (real ticket stock is cream/manila), not a reflexive default"
+      },
+      {
+        "rule": "overused-font",
+        "value": "helvetica",
+        "files": [
+          "survivor-war-room/index.html"
+        ],
+        "createdAt": "2026-09-11T03:02:40.501Z",
+        "reason": "system-font fallback stack (-apple-system, Segoe UI, Helvetica, Arial), not a reach for a trendy face"
+      },
+      {
+        "rule": "wide-tracking",
+        "value": "*",
+        "files": [
+          "survivor-war-room/index.html"
+        ],
+        "createdAt": "2026-09-11T03:02:40.733Z",
+        "reason": "only applied to .kicker, a 12.5px all-caps label, the sanctioned short-uppercase-label case"
+      },
+      {
+        "rule": "cream-palette",
+        "value": "*",
+        "files": [
+          "survivor-war-room/index.html"
+        ],
+        "createdAt": "2026-09-11T03:02:41.020Z",
+        "reason": "deliberate ticket/scorecard-stock motif paired with field-green+gold header, established in original design brief; domain-appropriate (real ticket stock is cream/manila), not a reflexive default"
       }
     ]
   }

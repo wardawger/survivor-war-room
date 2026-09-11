@@ -191,7 +191,7 @@
   </table>
 
   <footer>
-    Recommendations pull live betting odds and injury reports from ESPN and game-day weather from Open-Meteo each time you run analysis for a week — free public data, no API key required. Weather forecasts only exist inside ~2 weeks of kickoff. This is a strategy aid, not a guarantee; verify injury designations before locking a pick.
+    Recommendations pull live betting odds from a multi-sportsbook consensus (via The Odds API, falling back to ESPN if unavailable), injury reports from ESPN, and game-day weather from Open-Meteo each time you run analysis for a week. Weather forecasts only exist inside ~2 weeks of kickoff. This is a strategy aid, not a guarantee; verify injury designations before locking a pick.
   </footer>
 </div>
 
@@ -260,6 +260,7 @@ const ESPN_ABBR = { WAS:'WSH' }; // ESPN uses WSH where our codes use WAS; every
 const ESPN_ABBR_REVERSE = Object.fromEntries(Object.entries(ESPN_ABBR).map(([ours,espn])=>[espn,ours]));
 function toEspnAbbr(code){ return ESPN_ABBR[code] || code; }
 function fromEspnAbbr(abbr){ return ESPN_ABBR_REVERSE[abbr] || abbr; }
+const NAME_TO_CODE = Object.fromEntries(Object.entries(TEAM_NAMES).map(([code,name])=>[name,code]));
 
 let state = { usedTeams: [], picks: {}, cache: {} };
 let selectedWeek = 1;
@@ -461,6 +462,37 @@ async function fetchWeekOdds(w){
   return byMatchup;
 }
 
+async function fetchOddsApiConsensus(){
+  const res = await fetch('/.netlify/functions/odds');
+  if(!res.ok) throw new Error(`Odds proxy HTTP ${res.status}`);
+  const events = await res.json();
+  const byMatchup = {};
+  events.forEach(ev=>{
+    const homeCode = NAME_TO_CODE[ev.home_team], awayCode = NAME_TO_CODE[ev.away_team];
+    if(!homeCode || !awayCode) return;
+    const homePrices = [], awayPrices = [];
+    (ev.bookmakers||[]).forEach(bm=>{
+      const market = (bm.markets||[]).find(m=>m.key==='h2h');
+      if(!market) return;
+      (market.outcomes||[]).forEach(o=>{
+        if(o.name===ev.home_team) homePrices.push(o.price);
+        else if(o.name===ev.away_team) awayPrices.push(o.price);
+      });
+    });
+    if(!homePrices.length || !awayPrices.length) return;
+    const avg = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
+    const homeML = Math.round(avg(homePrices)), awayML = Math.round(avg(awayPrices));
+    let homeProb = impliedProb(homeML), awayProb = impliedProb(awayML);
+    const total = homeProb + awayProb;
+    homeProb/=total; awayProb/=total;
+    byMatchup[`${awayCode}@${homeCode}`] = {
+      home:{moneyline:homeML, prob:homeProb}, away:{moneyline:awayML, prob:awayProb},
+      bookCount: (ev.bookmakers||[]).length
+    };
+  });
+  return byMatchup;
+}
+
 async function fetchInjuries(eventId){
   try{
     const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${eventId}`);
@@ -511,13 +543,25 @@ async function fetchWeather(code, isoDate){
 async function runAnalysis(w){
   const btn = document.getElementById('analyzeBtn');
   if(btn){ btn.disabled = true; btn.textContent = 'Pulling data…'; }
-  document.getElementById('analysisArea').insertAdjacentHTML('beforeend', `<div class="loading" id="loadingMsg">Pulling odds from ESPN and weather from Open-Meteo…</div>`);
+  document.getElementById('analysisArea').insertAdjacentHTML('beforeend', `<div class="loading" id="loadingMsg">Pulling odds and weather…</div>`);
 
   const {games} = weekMatchups(w);
   const dp = DOUBLE_PICK_WEEKS.includes(w);
 
+  let usedOddsApi = false;
   try{
     const odds = await fetchWeekOdds(w);
+    try{
+      const consensus = await fetchOddsApiConsensus();
+      Object.keys(odds).forEach(key=>{
+        const c = consensus[key];
+        if(!c) return;
+        odds[key].home.moneyline = c.home.moneyline; odds[key].home.prob = c.home.prob;
+        odds[key].away.moneyline = c.away.moneyline; odds[key].away.prob = c.away.prob;
+        odds[key].source = `${c.bookCount}-book consensus`;
+        usedOddsApi = true;
+      });
+    }catch(e){ console.error('Odds proxy unavailable, using ESPN odds instead', e); }
     const candidates = [];
     games.forEach(g=>{
       const m = odds[`${g.away}@${g.home}`];
@@ -529,7 +573,7 @@ async function runAnalysis(w){
           winProbability: entry.side.prob!=null ? Math.round(entry.side.prob*100) : null,
           moneyline: fmtMoneyline(entry.side.moneyline),
           eventId: m.eventId, date: m.date,
-          spreadDetail: m.details, isHome: entry.home
+          spreadDetail: m.details, source: m.source, isHome: entry.home
         });
       });
     });
@@ -546,13 +590,14 @@ async function runAnalysis(w){
     const picks = top.map(c=>({
       team: c.team, opponent: c.opponent, winProbability: c.winProbability,
       moneyline: c.moneyline,
-      keyFactors: c.spreadDetail ? [c.spreadDetail] : [],
+      keyFactors: [c.spreadDetail, c.source].filter(Boolean),
       injuryNotes: c.injuryNotes, weatherNotes: c.weatherNotes
     }));
     const topRecommendation = dp ? picks.slice(0,2).map(p=>p.team) : picks.slice(0,1).map(p=>p.team);
     const leader = picks[0];
+    const oddsSourceLabel = usedOddsApi ? 'The Odds API (multi-book consensus)' : 'ESPN';
     const summary = leader
-      ? `${TEAM_NAMES[leader.team]} is this week's strongest survivor play at ${leader.winProbability!=null?leader.winProbability+'%':'an unknown'} implied win probability (${leader.moneyline||'no line yet'}). Odds from ESPN, weather from Open-Meteo — re-run close to kickoff for the freshest read.`
+      ? `${TEAM_NAMES[leader.team]} is this week's strongest survivor play at ${leader.winProbability!=null?leader.winProbability+'%':'an unknown'} implied win probability (${leader.moneyline||'no line yet'}). Odds from ${oddsSourceLabel}, weather from Open-Meteo — re-run close to kickoff for the freshest read.`
       : 'No odds available yet for this week — lines are usually posted a week or two out. Try again closer to kickoff.';
 
     state.cache[w] = { data: {picks, topRecommendation, summary}, ts: Date.now(), raw: null };
