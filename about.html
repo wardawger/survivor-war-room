@@ -117,9 +117,14 @@
       <div class="endpoint">site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard</div>
     </div>
     <div class="source">
-      <div class="name">ESPN Predictor (FPI) <span class="tag">FALLBACK MODEL</span></div>
-      <div class="desc">ESPN's own Football Power Index-based pregame win projection. Sportsbooks don't post lines for games more than a couple of weeks out, but ESPN's predictor computes a projection for essentially any scheduled game on the calendar. This is the only source used for far-future weeks, and it's always labeled "ESPN Predictor" or "modeled" in the app so it's never confused with a real market line.</div>
+      <div class="name">ESPN Predictor (FPI) <span class="tag">FALLBACK ODDS + POWER SCORE</span></div>
+      <div class="desc">ESPN's own Football Power Index-based pregame win projection. Sportsbooks don't post lines for games more than a couple of weeks out, but ESPN's predictor computes a projection for essentially any scheduled game on the calendar. It fills gaps in the odds priority chain below, and it's also the 75% component of the weighted Power Score used for the season-long future-outlook comparison.</div>
       <div class="endpoint">sports.core.api.espn.com/.../events/{id}/competitions/{id}/predictor</div>
+    </div>
+    <div class="source">
+      <div class="name">nfelo <span class="tag">POWER SCORE</span></div>
+      <div class="desc">An Elo-derived power rating per team, published as a public CSV by the open-source nfelo project (built on 538's Elo framework, adapted for the NFL). Updated by their own model pipeline each week. This is the 25% component of the weighted Power Score — see below for how it's combined with FPI and converted into a win probability.</div>
+      <div class="endpoint">raw.githubusercontent.com/greerreNFL/nfelo/main/output_data/elo_snapshot.csv</div>
     </div>
     <div class="source">
       <div class="name">ESPN Game Summary (Injuries)</div>
@@ -165,6 +170,27 @@
   </div>
 
   <div class="section-head">
+    <h2>The weighted Power Score</h2>
+    <span class="sub">A second, independent estimate — blending two power-rating models instead of market odds — used specifically to compare a team's value across the season</span>
+  </div>
+  <div class="prose">
+    <p>Market odds (the priority chain above) are the best available read on <em>this week's</em> game. But they don't exist yet for games several weeks out, and even when they do, mixing "real odds this week" with "a model's guess for week 10" makes for an unfair comparison when deciding whether to save a team. To compare a team's value across its <em>entire remaining schedule</em> on equal footing, the app instead uses one consistent blended model for every week — the Power Score:</p>
+  </div>
+  <div class="formula-box">
+    powerScore(home) = 0.75 × FPI(home) + 0.25 × nfeloWinProb(home)
+  </div>
+  <div class="prose">
+    <p>The 75/25 split reflects the original ask behind this feature: 60% FPI and 20% Elo, rescaled to 100% after dropping three additional sources — CBS, The Athletic, and ESPN's editorial power rankings — none of which publish a public API. (The Athletic is fully paywalled; the other two are written articles, not structured data, and would require fragile page-scraping that breaks whenever the format changes.) 60:20 rescales to 75:25 once those three are removed.</p>
+    <p>nfelo's rating isn't a win probability by itself — it's an Elo-style score, so it's converted using the standard Elo win-probability formula, with an assumed home-field advantage of 48 Elo points (a commonly cited estimate in Elo-based NFL models):</p>
+  </div>
+  <div class="formula-box">
+    nfeloWinProb(home) = 1 / (1 + 10<sup>(nfeloAway − (nfeloHome + 48)) / 400</sup>)
+  </div>
+  <div class="prose">
+    <p>If either FPI or nfelo is unavailable for a given game, the Power Score falls back to whichever one is available rather than guessing. The Power Score is shown on every one of the week's top-5 picks alongside the market-odds win probability, so you can see where the two agree or disagree.</p>
+  </div>
+
+  <div class="section-head">
     <h2>Building the weekly recommendation list</h2>
   </div>
   <div class="prose">
@@ -182,14 +208,14 @@
     <h2>The "consider saving" future-outlook check</h2>
   </div>
   <div class="prose">
-    <p>A high win probability this week doesn't automatically mean a team is the right pick <em>this</em> week — if that same team is an even bigger favorite three weeks from now, burning it early can cost you later. To catch this, every one of the week's top-5 candidates is checked against the rest of its own schedule:</p>
+    <p>A high win probability this week doesn't automatically mean a team is the right pick <em>this</em> week — if that same team is an even bigger favorite three weeks from now, burning it early can cost you later, since each team can only be picked once all season. To catch this, every one of the week's top-5 candidates is checked against the rest of its own schedule, using the Power Score (not market odds) for every week so the comparison stays apples-to-apples:</p>
     <ol>
-      <li>For each remaining week on that team's schedule, the app resolves a win probability the same way as above (real odds/spread first, ESPN Predictor as the fallback).</li>
-      <li>The single best remaining week is kept.</li>
-      <li>If that future week's probability is more than 5 percentage points higher than the current week's, the pick is flagged <strong>"Consider saving"</strong> with the specific week and opponent named.</li>
+      <li>Compute the candidate's own Power Score for the current week.</li>
+      <li>Compute the Power Score for every remaining week on that team's schedule (skipping byes), and keep the single best one.</li>
+      <li>If that future week's Power Score is more than 5 percentage points higher than the current week's, the pick is flagged <strong>"Consider saving"</strong> with the specific week and opponent named.</li>
       <li>Otherwise, the app simply shows the team's best remaining spot for reference.</li>
     </ol>
-    <p>Every future-outlook number is labeled with its source (a real posted line, or "ESPN Predictor" / "modeled") so you always know whether you're looking at market data or a projection.</p>
+    <p>This is a per-team comparison, not a full season-long optimizer — it tells you when a specific candidate has a better spot coming up, not the single globally-optimal order to burn all 32 teams across 18 weeks.</p>
   </div>
 
   <div class="section-head">
