@@ -118,6 +118,17 @@
     font-size:9.5px;font-weight:800;border-radius:8px;padding:1px 4px;line-height:1.3;
   }
 
+  /* MODEL TOGGLE */
+  .model-toggle{margin-top:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .model-toggle .mt-label{font-size:11.5px;font-weight:700;letter-spacing:.06em;color:#C9CFC5;text-transform:uppercase;}
+  .model-toggle .mt-options{display:flex;gap:6px;}
+  .model-toggle .mt-btn{
+    padding:6px 12px;border:1px solid rgba(199,154,61,.5);background:transparent;
+    font-size:12.5px;font-weight:700;cursor:pointer;color:var(--chalk);border-radius:3px;
+  }
+  .model-toggle .mt-btn.active{background:var(--gold);color:var(--field-deep);border-color:var(--gold);}
+  .model-toggle .mt-desc{font-size:11.5px;color:#C9CFC5;flex-basis:100%;}
+
   /* WEEK PANEL */
   .panel{margin:20px 22px 0;border:1px solid var(--line);background:var(--card);}
   .panel-top{
@@ -190,6 +201,7 @@
     </div>
     <h1>Survivor War Room</h1>
     <p>Pick winners straight up, never reuse a team, and stay alive through the schedule's toughest stretch — the four-in-a-row double-pick gauntlet from Week 12 to 16.</p>
+    <div class="model-toggle" id="modelToggle"></div>
   </header>
 
   <div class="rules" id="rules"></div>
@@ -294,7 +306,7 @@ function teamLogoUrl(code){ return `https://a.espncdn.com/i/teamlogos/nfl/500/${
 function teamLogoImg(code, size){ return `<img class="team-logo" src="${teamLogoUrl(code)}" alt="" width="${size||18}" height="${size||18}" loading="lazy">`; }
 const NAME_TO_CODE = Object.fromEntries(Object.entries(TEAM_NAMES).map(([code,name])=>[name,code]));
 
-let state = { usedTeams: [], picks: {}, cache: {} };
+let state = { usedTeams: [], picks: {}, cache: {}, powerModel: 'yalango' }; // 'yalango' must match DEFAULT_POWER_MODEL below (declared later, so not referenced here directly)
 let selectedWeek = 1;
 let stateVersion = null;
 
@@ -314,6 +326,7 @@ async function loadState(){
     const raw = localStorage.getItem(STORAGE_KEY);
     if(raw){ state = JSON.parse(raw); }
   }catch(e){ /* no saved state yet */ }
+  if(!state.powerModel || !POWER_MODELS[state.powerModel]) state.powerModel = DEFAULT_POWER_MODEL; // handles state saved before the model toggle existed
 }
 async function saveState(){
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
@@ -364,6 +377,26 @@ function renderWeekTabs(){
   el.innerHTML = html;
 }
 function selectWeek(w){ selectedWeek = w; renderWeekTabs(); renderPanel(); }
+
+function renderModelToggle(){
+  const el = document.getElementById('modelToggle');
+  const active = POWER_MODELS[state.powerModel] || POWER_MODELS[DEFAULT_POWER_MODEL];
+  const options = Object.entries(POWER_MODELS).map(([id, m]) =>
+    `<button class="mt-btn ${id===state.powerModel?'active':''}" onclick="setPowerModel('${id}')">${m.label}</button>`
+  ).join('');
+  el.innerHTML = `<span class="mt-label">Power Score model</span><div class="mt-options">${options}</div><span class="mt-desc">${active.desc}</span>`;
+}
+
+// Switching models changes every Power Score number the app would compute, so any already-pulled weekly analysis
+// is cleared rather than left showing numbers from the old model under the new model's label.
+function setPowerModel(id){
+  if(!POWER_MODELS[id] || id === state.powerModel) return;
+  state.powerModel = id;
+  state.cache = {};
+  saveState();
+  renderModelToggle();
+  renderPanel();
+}
 
 function lockPick(week, code){
   if(!state.picks[week]) state.picks[week] = [];
@@ -441,7 +474,7 @@ function renderAnalysisBlock(cached, w, locked){
       <div class="pt">
         <div class="pname">${teamLogoImg(p.team,22)} ${TEAM_NAMES[p.team]||p.team} <span style="font-weight:500;color:var(--ink-soft);font-size:12px;">vs ${TEAM_NAMES[p.opponent]||p.opponent}</span></div>
         <div class="pfactors">${(p.keyFactors||[]).join(' · ')}${p.injuryNotes?' · '+p.injuryNotes:''}${p.weatherNotes?' · '+p.weatherNotes:''}</div>
-        ${p.powerScorePct!=null?`<div class="ppower">Power score: ${p.powerScorePct}% <span style="font-weight:500;">(60% FPI / 20% nfelo / 20% PFN consensus)</span></div>`:''}
+        ${p.powerScorePct!=null?`<div class="ppower">Power score: ${p.powerScorePct}% <span style="font-weight:500;">(${(POWER_MODELS[state.powerModel]||POWER_MODELS[DEFAULT_POWER_MODEL]).label}: ${(POWER_MODELS[state.powerModel]||POWER_MODELS[DEFAULT_POWER_MODEL]).desc})</span></div>`:''}
         ${p.futureNote?`<div class="pfuture">${p.futureNote}</div>`:''}
       </div>
       <div class="pactions">
@@ -595,7 +628,15 @@ async function fetchPfnRankings(){
   }catch(e){ console.error('PFN rankings fetch failed', e); return {}; }
 }
 
-const POWER_WEIGHTS = { fpi: 0.6, nfelo: 0.2, pfn: 0.2 }; // restored 60/20/20 original-ask split now that PFN's consensus rank is scrapable
+// Two selectable Power Score formulas. "Yalango" is the original 60/20/20 design (FPI + nfelo + PFN consensus).
+// "No Vibes" is the market-odds-adjacent, no-media-consensus formula this app briefly shipped as its only option
+// before PFN's rankings became scrapable — kept selectable for anyone who'd rather not blend in a media source.
+const POWER_MODELS = {
+  yalango: { label: 'Yalango', desc: '60% FPI / 20% nfelo / 20% PFN consensus rank', weights: { fpi: 0.6, nfelo: 0.2, pfn: 0.2 } },
+  novibes: { label: 'No Vibes', desc: '75% FPI / 25% nfelo — no media consensus input', weights: { fpi: 0.75, nfelo: 0.25, pfn: 0 } }
+};
+const DEFAULT_POWER_MODEL = 'yalango';
+
 const NFELO_HOME_ADV = 48; // Elo points; standard home-field-advantage estimate used in Elo-style NFL models
 const PFN_RANK_POINTS = 14; // synthetic Elo-equivalent points per consensus-rank position, so rank can reuse the same logistic curve as nfelo
 
@@ -611,22 +652,23 @@ function pfnRankWinProb(homeRank, awayRank){
   return nfeloWinProb(homeRating, awayRating);
 }
 
-// Blends ESPN's FPI-based predictor, nfelo's Elo-derived power rating, and PFN's consensus rank into one weighted
-// probability per side. Falls back proportionally to whichever sources are available if one or more are missing;
-// never fabricates a number if all are missing.
+// Blends ESPN's FPI-based predictor, nfelo's Elo-derived power rating, and (model-dependent) PFN's consensus rank
+// into one weighted probability per side, using the currently-selected model's weights. Falls back proportionally
+// to whichever sources are available if one or more are missing; never fabricates a number if all are missing.
 async function computePowerScore(homeCode, awayCode, eventId, nfeloRatings, predictorCache, pfnRankings){
+  const weights = (POWER_MODELS[state.powerModel] || POWER_MODELS[DEFAULT_POWER_MODEL]).weights;
   if(!(eventId in predictorCache)) predictorCache[eventId] = await fetchPredictor(eventId);
   const pred = predictorCache[eventId];
   const fpiHome = pred ? pred.home : null;
   const nfHome = nfeloRatings[homeCode], nfAway = nfeloRatings[awayCode];
   const nfeloHome = (nfHome!=null && nfAway!=null) ? nfeloWinProb(nfHome, nfAway) : null;
   const pfnHomeRank = pfnRankings[homeCode], pfnAwayRank = pfnRankings[awayCode];
-  const pfnHome = (pfnHomeRank!=null && pfnAwayRank!=null) ? pfnRankWinProb(pfnHomeRank, pfnAwayRank) : null;
+  const pfnHome = (weights.pfn > 0 && pfnHomeRank!=null && pfnAwayRank!=null) ? pfnRankWinProb(pfnHomeRank, pfnAwayRank) : null;
 
   const parts = [
-    [fpiHome, POWER_WEIGHTS.fpi],
-    [nfeloHome, POWER_WEIGHTS.nfelo],
-    [pfnHome, POWER_WEIGHTS.pfn]
+    [fpiHome, weights.fpi],
+    [nfeloHome, weights.nfelo],
+    [pfnHome, weights.pfn]
   ].filter(([val]) => val != null);
   if(!parts.length) return {home:null, away:null};
   const weightSum = parts.reduce((s,[,w])=>s+w, 0);
@@ -707,9 +749,9 @@ async function fillPredictorFallback(m, predictorCache){
 }
 
 // Looks across the rest of the season for each candidate to flag when a team is worth saving for a stronger future spot.
-// Uses the same weighted power score (60% ESPN FPI / 20% nfelo / 20% PFN consensus rank) for every week, current and
-// future alike, so the comparison is apples-to-apples — mixing real market odds for some weeks and a model for others
-// would bias the result.
+// Uses the same weighted Power Score (whichever model is currently selected — see POWER_MODELS) for every week,
+// current and future alike, so the comparison is apples-to-apples — mixing real market odds for some weeks and a
+// model for others would bias the result.
 async function annotateFutureOutlook(candidates, currentWeek, predictorCache, nfeloRatings, pfnRankings){
   const weeks = [];
   for(let w=currentWeek+1; w<=TOTAL_WEEKS; w++) weeks.push(w);
@@ -858,6 +900,7 @@ function renderRoadmap(){
   await loadState();
   renderRules();
   renderTracker();
+  renderModelToggle();
   renderWeekTabs();
   renderPanel();
   renderRoadmap();

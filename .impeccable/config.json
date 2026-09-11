@@ -83,6 +83,15 @@
         ],
         "createdAt": "2026-09-11T04:08:35.111Z",
         "reason": "no single-side colored accent border exists in this file's CSS; only uniform all-side 1px borders on .source/.nav-home/.priority-chain .step"
+      },
+      {
+        "rule": "side-tab",
+        "value": "border-bottom:5px solid var(--gold)",
+        "files": [
+          "survivor-war-room/index.html"
+        ],
+        "createdAt": "2026-09-11T19:05:28.438Z",
+        "reason": "pre-existing header brand stripe (full-width bottom border on the page header, not a card left-accent), present since commit 935776c, consistent across index.html and about.html"
       }
     ]
   }
