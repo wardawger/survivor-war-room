@@ -192,7 +192,7 @@
   </table>
 
   <footer>
-    Recommendations pull live betting odds from a multi-sportsbook consensus (via The Odds API, falling back to ESPN if unavailable), injury reports from ESPN, and game-day weather from Open-Meteo each time you run analysis for a week. Each candidate is also checked against its own next 3 weeks — if a stronger posted line shows up later, you'll see a "consider saving" flag instead of just this week's number. Weather and future-week forecasts only exist inside ~2 weeks of kickoff. This is a strategy aid, not a guarantee; verify injury designations before locking a pick.
+    Recommendations pull live betting odds from a multi-sportsbook consensus (via The Odds API, falling back to ESPN if unavailable), injury reports from ESPN, and game-day weather from Open-Meteo each time you run analysis for a week. Each candidate is also checked against the rest of its season: real posted lines where they exist, and a point-differential model (this season blended with last season's results, plus home-field edge) everywhere else — so you'll see a "consider saving" flag whenever a later week, even one without odds posted yet, looks like a stronger spot. Weather forecasts only exist inside ~2 weeks of kickoff. This is a strategy aid, not a guarantee; verify injury designations before locking a pick.
   </footer>
 </div>
 
@@ -542,45 +542,83 @@ async function fetchWeather(code, isoDate){
   }catch(e){ console.error('weather fetch failed', e); return ''; }
 }
 
-function nextOpponents(team, fromWeek, count){
-  const arr = SCHEDULE[team], list = [];
-  for(let w=fromWeek+1; w<=TOTAL_WEEKS && list.length<count; w++){
-    const val = arr[w-1];
-    if(val==='bye') continue;
-    const home = !val.startsWith('@');
-    list.push(`${home?'vs':'@'} ${val.replace('@','')} (Wk ${w})`);
+// Blends this season's point differential (real games only) with last season's final differential as a prior,
+// shrinking toward the live number as more current-season games accumulate. Standard early-season power-rating approach.
+async function fetchTeamRatings(){
+  async function seasonDiffs(season){
+    try{
+      const res = await fetch(`https://site.api.espn.com/apis/v2/sports/football/nfl/standings?season=${season}`);
+      if(!res.ok) return {};
+      const json = await res.json();
+      const out = {};
+      (json.children||[]).forEach(conf=>{
+        ((conf.standings||{}).entries||[]).forEach(entry=>{
+          const code = fromEspnAbbr(entry.team.abbreviation);
+          const stats = Object.fromEntries((entry.stats||[]).map(s=>[s.name, s.value]));
+          out[code] = { diff: stats.pointDifferential||0, games: (stats.wins||0)+(stats.losses||0)+(stats.ties||0) };
+        });
+      });
+      return out;
+    }catch(e){ console.error('standings fetch failed', e); return {}; }
   }
-  return list;
+  const [current, prior] = await Promise.all([seasonDiffs(2026), seasonDiffs(2025)]);
+  const ratings = {};
+  Object.keys(TEAM_NAMES).forEach(code=>{
+    const cur = current[code] || {diff:0, games:0};
+    const pr = prior[code] || {diff:0, games:17};
+    const priorPerGame = pr.games ? pr.diff/pr.games : 0;
+    const curPerGame = cur.games ? cur.diff/cur.games : priorPerGame;
+    const shrinkK = 4; // ~4 games of current-season data outweighs last season's prior
+    const weight = cur.games/(cur.games+shrinkK);
+    ratings[code] = weight*curPerGame + (1-weight)*priorPerGame;
+  });
+  return ratings;
+}
+function modeledHomeWinProb(homeCode, awayCode, ratings){
+  const HOME_FIELD_ADVANTAGE = 2; // points, standard NFL estimate
+  const margin = ((ratings[homeCode]||0) - (ratings[awayCode]||0)) + HOME_FIELD_ADVANTAGE;
+  return 1/(1+Math.pow(10, -margin/14));
 }
 
-// Looks a few weeks ahead for each candidate to flag when a team is worth saving for a stronger future spot.
-// Sportsbooks rarely post lines more than ~1-2 weeks out, so this only ever compares against real posted odds — never guesses.
+// Looks across the rest of the season for each candidate to flag when a team is worth saving for a stronger future spot.
+// Prefers real posted odds where they exist (next ~3 weeks); everywhere else it falls back to the point-differential
+// model above so every remaining week gets an estimate — always labeled "modeled" so it's never mistaken for a live line.
 async function annotateFutureOutlook(candidates, currentWeek){
-  const lookaheadWeeks = [];
-  for(let w=currentWeek+1; w<=Math.min(currentWeek+3, TOTAL_WEEKS); w++) lookaheadWeeks.push(w);
+  const nearWeeks = [];
+  for(let w=currentWeek+1; w<=Math.min(currentWeek+3, TOTAL_WEEKS); w++) nearWeeks.push(w);
   const weekOddsByWeek = {};
-  for(const lw of lookaheadWeeks){
+  for(const lw of nearWeeks){
     try{ weekOddsByWeek[lw] = await fetchWeekOdds(lw); }catch(e){ weekOddsByWeek[lw] = {}; }
   }
+  const ratings = await fetchTeamRatings();
+
   candidates.forEach(c=>{
     let best = null;
-    lookaheadWeeks.forEach(lw=>{
-      Object.values(weekOddsByWeek[lw]).forEach(m=>{
-        const side = m.home.code===c.team ? m.home : (m.away.code===c.team ? m.away : null);
-        if(!side || side.prob==null) return;
-        const opp = m.home.code===c.team ? m.away.code : m.home.code;
-        const prob = Math.round(side.prob*100);
-        if(!best || prob>best.prob) best = {week:lw, opponent:opp, prob};
-      });
-    });
-    if(best && best.prob > c.winProbability + 5){
-      c.futureNote = `Consider saving — Week ${best.week} vs ${best.opponent} looks even stronger (${best.prob}%).`;
-    } else if(best){
-      c.futureNote = `Next posted line: Week ${best.week} vs ${best.opponent} at ${best.prob}%.`;
-    } else{
-      const upcoming = nextOpponents(c.team, currentWeek, 2);
-      c.futureNote = upcoming.length ? `No lines posted yet past this week. Upcoming: ${upcoming.join(', ')}.` : '';
+    for(let w=currentWeek+1; w<=TOTAL_WEEKS; w++){
+      const val = SCHEDULE[c.team][w-1];
+      if(val==='bye') continue;
+      const isHome = !val.startsWith('@');
+      const opp = val.replace('@','');
+      let prob = null, modeled = true;
+      const wk = weekOddsByWeek[w];
+      if(wk){
+        const key = isHome ? `${opp}@${c.team}` : `${c.team}@${opp}`;
+        const m = wk[key];
+        const side = m ? (isHome ? m.home : m.away) : null;
+        if(side && side.prob!=null){ prob = side.prob; modeled = false; }
+      }
+      if(prob==null){
+        const homeProb = modeledHomeWinProb(isHome?c.team:opp, isHome?opp:c.team, ratings);
+        prob = isHome ? homeProb : 1-homeProb;
+      }
+      const probPct = Math.round(prob*100);
+      if(!best || probPct>best.prob) best = {week:w, opponent:opp, prob:probPct, modeled};
     }
+    if(!best){ c.futureNote = ''; return; }
+    const tag = best.modeled ? ', modeled' : '';
+    c.futureNote = best.prob > c.winProbability + 5
+      ? `Consider saving — Week ${best.week} vs ${best.opponent} looks even stronger (${best.prob}%${tag}).`
+      : `Best remaining spot: Week ${best.week} vs ${best.opponent} at ${best.prob}%${tag}.`;
   });
 }
 
