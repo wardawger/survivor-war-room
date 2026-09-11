@@ -31,14 +31,17 @@
 
   /* HEADER */
   header{
-    position:relative;
     background:linear-gradient(180deg,var(--field) 0%,var(--field-deep) 100%);
     color:var(--chalk);
-    padding:34px 22px 26px;
+    padding:22px 22px 26px;
     border-bottom:5px solid var(--gold);
   }
+  header .header-top{
+    display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;
+    margin-bottom:12px;
+  }
   header .nav-about{
-    position:absolute;top:20px;right:22px;
+    flex-shrink:0;
     font-size:12.5px;font-weight:700;color:var(--gold);
     text-decoration:none;letter-spacing:.04em;
     border:1px solid rgba(199,154,61,.5);border-radius:3px;padding:6px 12px;
@@ -46,7 +49,7 @@
   header .nav-about:hover{background:rgba(199,154,61,.12);}
   header .kicker{
     font-size:12.5px;letter-spacing:.14em;color:var(--gold);
-    font-weight:700;margin-bottom:6px;
+    font-weight:700;
   }
   header h1{
     margin:0 0 4px;
@@ -56,6 +59,12 @@
     line-height:1.05;
   }
   header p{margin:6px 0 0;color:#C9CFC5;font-size:14.5px;max-width:560px;line-height:1.5;}
+
+  @media (max-width:520px){
+    header{padding:18px 16px 22px;}
+    header h1{font-size:25px;}
+    .wrap{padding-bottom:40px;}
+  }
 
   /* RULES STRIP */
   .rules{
@@ -140,17 +149,18 @@
   .analysis{padding:14px 16px;border-top:1px solid var(--line);}
   .analysis .meta{font-size:11.5px;color:var(--ink-soft);margin-bottom:10px;}
   .pick-row{
-    display:flex;align-items:center;justify-content:space-between;
+    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;
     border:1px solid var(--line);background:#FBF9F1;padding:10px 12px;margin-bottom:6px;
   }
   .pick-row.top{border-color:var(--gold-deep);background:#FBF3DD;}
-  .pick-row .pt{display:flex;flex-direction:column;}
+  .pick-row .pt{display:flex;flex-direction:column;flex:1 1 220px;min-width:0;}
   .pick-row .pname{font-weight:800;font-size:14.5px;}
   .pick-row .pfactors{font-size:12px;color:var(--ink-soft);margin-top:2px;max-width:480px;}
   .pick-row .pfuture{font-size:12px;color:var(--gold-deep);font-weight:600;margin-top:3px;max-width:480px;}
   .pick-row .ppower{font-size:12px;color:var(--field);font-weight:700;margin-top:3px;max-width:480px;}
   .pick-row .pstats{text-align:right;font-size:12.5px;color:var(--ink-soft);white-space:nowrap;margin-left:10px;}
   .pick-row .pstats b{color:var(--ink);font-size:15px;}
+  .pick-row .pactions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;}
   .summary-box{
     margin-top:10px;padding:10px 12px;background:var(--field);color:#E7E2CF;
     font-size:13px;line-height:1.5;
@@ -159,7 +169,8 @@
   .loading{padding:20px;text-align:center;font-size:13px;color:var(--ink-soft);}
 
   /* ROADMAP */
-  table.roadmap{width:calc(100% - 44px);margin:0 22px;border-collapse:collapse;font-size:13px;}
+  .roadmap-scroll{margin:0 22px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  table.roadmap{width:100%;min-width:520px;border-collapse:collapse;font-size:13px;}
   table.roadmap th,table.roadmap td{border:1px solid var(--line);padding:8px 9px;text-align:left;}
   table.roadmap th{background:var(--field);color:var(--chalk);font-weight:700;font-size:11.5px;}
   table.roadmap tr:nth-child(even) td{background:#F2EEDF;}
@@ -173,8 +184,10 @@
 <body>
 <div class="wrap">
   <header>
-    <a class="nav-about" href="about.html">About</a>
-    <div class="kicker">2026 SEASON · WEEKS 1–18</div>
+    <div class="header-top">
+      <div class="kicker">2026 SEASON · WEEKS 1–18</div>
+      <a class="nav-about" href="about.html">About</a>
+    </div>
     <h1>Survivor War Room</h1>
     <p>Pick winners straight up, never reuse a team, and stay alive through the schedule's toughest stretch — the four-in-a-row double-pick gauntlet from Week 12 to 16.</p>
   </header>
@@ -200,10 +213,12 @@
     <h2>Season roadmap</h2>
     <span class="sub">Locked picks carry forward automatically</span>
   </div>
-  <table class="roadmap">
-    <thead><tr><th>Wk</th><th>Games</th><th>Double pick</th><th>Locked pick(s)</th><th>Status</th></tr></thead>
-    <tbody id="roadmapBody"></tbody>
-  </table>
+  <div class="roadmap-scroll">
+    <table class="roadmap">
+      <thead><tr><th>Wk</th><th>Games</th><th>Double pick</th><th>Locked pick(s)</th><th>Status</th></tr></thead>
+      <tbody id="roadmapBody"></tbody>
+    </table>
+  </div>
 
   <footer>
     Recommendations pull live betting odds from a multi-sportsbook consensus (via The Odds API, falling back to ESPN's posted spread if unavailable), injury reports from ESPN, and game-day weather from Open-Meteo each time you run analysis for a week. Each candidate is also checked against the rest of its season — real posted lines where they exist, and ESPN's own FPI-based Predictor for any game that doesn't have one yet — so you'll see a "consider saving" flag whenever a later week looks like a stronger spot. Weather forecasts only exist inside ~2 weeks of kickoff. This is a strategy aid, not a guarantee; verify injury designations before locking a pick.
@@ -429,7 +444,7 @@ function renderAnalysisBlock(cached, w, locked){
         ${p.powerScorePct!=null?`<div class="ppower">Power score: ${p.powerScorePct}% <span style="font-weight:500;">(75% FPI / 25% nfelo)</span></div>`:''}
         ${p.futureNote?`<div class="pfuture">${p.futureNote}</div>`:''}
       </div>
-      <div style="display:flex;align-items:center;gap:10px;">
+      <div class="pactions">
         <div class="pstats"><b>${p.winProbability?p.winProbability+'%':'—'}</b><br>${p.moneyline||''}</div>
         <button class="btn small" onclick='lockPick(${w},"${p.team}")'>Lock</button>
       </div>
