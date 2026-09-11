@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Survivor War Room — 2026</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23173324'/%3E%3Ctext x='32' y='43' font-family='Arial,Helvetica,sans-serif' font-size='28' font-weight='800' fill='%23C79A3D' text-anchor='middle'%3ESW%3C/text%3E%3C/svg%3E">
 <style>
   :root{
     --field:#173324;
@@ -123,6 +124,9 @@
     display:flex;align-items:center;justify-content:space-between;
   }
   .matchup .vs{color:var(--ink-soft);font-size:11px;margin:0 6px;}
+  .matchup .side{display:flex;align-items:center;gap:6px;min-width:0;}
+  .matchup .side span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .team-logo{object-fit:contain;flex-shrink:0;vertical-align:middle;}
   .byes{padding:0 16px 14px;font-size:12.5px;color:var(--ink-soft);}
 
   .analysis{padding:14px 16px;border-top:1px solid var(--line);}
@@ -261,6 +265,8 @@ const ESPN_ABBR = { WAS:'WSH' }; // ESPN uses WSH where our codes use WAS; every
 const ESPN_ABBR_REVERSE = Object.fromEntries(Object.entries(ESPN_ABBR).map(([ours,espn])=>[espn,ours]));
 function toEspnAbbr(code){ return ESPN_ABBR[code] || code; }
 function fromEspnAbbr(abbr){ return ESPN_ABBR_REVERSE[abbr] || abbr; }
+function teamLogoUrl(code){ return `https://a.espncdn.com/i/teamlogos/nfl/500/${toEspnAbbr(code).toLowerCase()}.png`; }
+function teamLogoImg(code, size){ return `<img class="team-logo" src="${teamLogoUrl(code)}" alt="" width="${size||18}" height="${size||18}" loading="lazy">`; }
 const NAME_TO_CODE = Object.fromEntries(Object.entries(TEAM_NAMES).map(([code,name])=>[name,code]));
 
 let state = { usedTeams: [], picks: {}, cache: {} };
@@ -368,9 +374,9 @@ function renderPanel(){
     const usedAway = state.usedTeams.includes(g.away) && !locked.includes(g.away);
     const usedHome = state.usedTeams.includes(g.home) && !locked.includes(g.home);
     html += `<div class="matchup">
-      <span style="${usedAway?'opacity:.4;text-decoration:line-through;':''}">${TEAM_NAMES[g.away]}</span>
+      <span class="side" style="${usedAway?'opacity:.4;text-decoration:line-through;':''}">${teamLogoImg(g.away)}<span>${TEAM_NAMES[g.away]}</span></span>
       <span class="vs">at</span>
-      <span style="${usedHome?'opacity:.4;text-decoration:line-through;':''}">${TEAM_NAMES[g.home]}</span>
+      <span class="side" style="${usedHome?'opacity:.4;text-decoration:line-through;':''}">${teamLogoImg(g.home)}<span>${TEAM_NAMES[g.home]}</span></span>
     </div>`;
   });
   html += `</div>`;
@@ -380,7 +386,7 @@ function renderPanel(){
   if(locked.length){
     html += `<div class="meta">Locked for Week ${w}:</div>`;
     locked.forEach(code=>{
-      html += `<div class="pick-row top"><div class="pt"><div class="pname">${TEAM_NAMES[code]}</div></div>
+      html += `<div class="pick-row top"><div class="pt"><div class="pname">${teamLogoImg(code,22)} ${TEAM_NAMES[code]}</div></div>
         <button class="btn ghost small" onclick="unlockPick(${w},'${code}')">Unlock</button></div>`;
     });
   }
@@ -408,7 +414,7 @@ function renderAnalysisBlock(cached, w, locked){
     const isTop = top.includes(p.team);
     html += `<div class="pick-row ${isTop?'top':''}">
       <div class="pt">
-        <div class="pname">${TEAM_NAMES[p.team]||p.team} <span style="font-weight:500;color:var(--ink-soft);font-size:12px;">vs ${TEAM_NAMES[p.opponent]||p.opponent}</span></div>
+        <div class="pname">${teamLogoImg(p.team,22)} ${TEAM_NAMES[p.team]||p.team} <span style="font-weight:500;color:var(--ink-soft);font-size:12px;">vs ${TEAM_NAMES[p.opponent]||p.opponent}</span></div>
         <div class="pfactors">${(p.keyFactors||[]).join(' · ')}${p.injuryNotes?' · '+p.injuryNotes:''}${p.weatherNotes?' · '+p.weatherNotes:''}</div>
         ${p.futureNote?`<div class="pfuture">${p.futureNote}</div>`:''}
       </div>
@@ -418,7 +424,10 @@ function renderAnalysisBlock(cached, w, locked){
       </div>
     </div>`;
   });
-  if(data.summary) html += `<div class="summary-box">${data.summary}</div>`;
+  if(data.summary){
+    const logos = top.map(code=>teamLogoImg(code,24)).join('');
+    html += `<div class="summary-box">${logos?`<div style="margin-bottom:6px;">${logos}</div>`:''}${data.summary}</div>`;
+  }
   return html;
 }
 
@@ -692,7 +701,7 @@ function renderRoadmap(){
       <td>${w}</td>
       <td>${games.length}</td>
       <td class="dp-cell">${dp?'Yes':'—'}</td>
-      <td class="pick-cell">${locked.length? locked.map(c=>c).join(' + ') : '—'}</td>
+      <td class="pick-cell">${locked.length? locked.map(c=>`${teamLogoImg(c,16)} ${c}`).join(' + ') : '—'}</td>
       <td>${status}</td>
     </tr>`;
   }
