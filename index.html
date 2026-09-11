@@ -126,7 +126,7 @@
   .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
   .btn.small{padding:5px 9px;font-size:11.5px;}
 
-  .matchup-list{padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;}
+  .matchup-list{padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:8px;}
   .matchup{
     border:1px solid var(--line);padding:9px 11px;font-size:13.5px;background:#FBF9F1;
     display:flex;align-items:center;justify-content:space-between;
@@ -382,10 +382,10 @@ function renderPanel(){
   games.forEach(g=>{
     const usedAway = state.usedTeams.includes(g.away) && !locked.includes(g.away);
     const usedHome = state.usedTeams.includes(g.home) && !locked.includes(g.home);
-    html += `<div class="matchup">
-      <span class="side" style="${usedAway?'opacity:.4;text-decoration:line-through;':''}">${teamLogoImg(g.away)}<span>${TEAM_NAMES[g.away]}</span></span>
+    html += `<div class="matchup" title="${TEAM_NAMES[g.away]} at ${TEAM_NAMES[g.home]}">
+      <span class="side" style="${usedAway?'opacity:.4;text-decoration:line-through;':''}">${teamLogoImg(g.away)}<span>${g.away}</span></span>
       <span class="vs">at</span>
-      <span class="side" style="${usedHome?'opacity:.4;text-decoration:line-through;':''}">${teamLogoImg(g.home)}<span>${TEAM_NAMES[g.home]}</span></span>
+      <span class="side" style="${usedHome?'opacity:.4;text-decoration:line-through;':''}">${teamLogoImg(g.home)}<span>${g.home}</span></span>
     </div>`;
   });
   html += `</div>`;
