@@ -56,6 +56,33 @@
         ],
         "createdAt": "2026-09-11T03:02:41.020Z",
         "reason": "deliberate ticket/scorecard-stock motif paired with field-green+gold header, established in original design brief; domain-appropriate (real ticket stock is cream/manila), not a reflexive default"
+      },
+      {
+        "rule": "overused-font",
+        "value": "helvetica",
+        "files": [
+          "about.html"
+        ],
+        "createdAt": "2026-09-11T04:08:34.737Z",
+        "reason": "system-font fallback stack (-apple-system, Segoe UI, Helvetica, Arial), not a reach for a trendy face"
+      },
+      {
+        "rule": "cream-palette",
+        "value": "*",
+        "files": [
+          "about.html"
+        ],
+        "createdAt": "2026-09-11T04:08:34.911Z",
+        "reason": "shares index.html's deliberate ticket/scorecard-stock motif and field-green+gold system, not a reflexive default"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "about.html"
+        ],
+        "createdAt": "2026-09-11T04:08:35.111Z",
+        "reason": "no single-side colored accent border exists in this file's CSS; only uniform all-side 1px borders on .source/.nav-home/.priority-chain .step"
       }
     ]
   }
