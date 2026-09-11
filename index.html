@@ -530,6 +530,34 @@ async function fetchOddsApiConsensus(){
   return byMatchup;
 }
 
+async function fetchSportsGameOddsConsensus(){
+  const res = await fetch('/.netlify/functions/sportsgameodds');
+  if(!res.ok) throw new Error(`SportsGameOdds proxy HTTP ${res.status}`);
+  const json = await res.json();
+  const byMatchup = {};
+  (json.data||[]).forEach(ev=>{
+    const home = ev.teams && ev.teams.home, away = ev.teams && ev.teams.away;
+    if(!home || !away) return;
+    const homeCode = fromEspnAbbr(home.names.short), awayCode = fromEspnAbbr(away.names.short);
+    const oddsObj = ev.odds || {};
+    const homeOdd = oddsObj['points-home-game-ml-home'], awayOdd = oddsObj['points-away-game-ml-away'];
+    const homeML = homeOdd && homeOdd.fairOddsAvailable ? parseInt(homeOdd.fairOdds,10) : null;
+    const awayML = awayOdd && awayOdd.fairOddsAvailable ? parseInt(awayOdd.fairOdds,10) : null;
+    let homeProb = impliedProb(homeML), awayProb = impliedProb(awayML);
+    if(homeProb==null || awayProb==null) return;
+    const total = homeProb+awayProb; homeProb/=total; awayProb/=total;
+    byMatchup[`${awayCode}@${homeCode}`] = {
+      home:{moneyline:homeML, prob:homeProb}, away:{moneyline:awayML, prob:awayProb},
+      bookCount: homeOdd.byBookmaker ? Object.keys(homeOdd.byBookmaker).length : 0
+    };
+  });
+  return byMatchup;
+}
+function probToMoneyline(prob){
+  const ml = prob>=0.5 ? -(prob/(1-prob))*100 : ((1-prob)/prob)*100;
+  return Math.round(ml);
+}
+
 // nfelo (github.com/greerreNFL/nfelo) publishes a weekly power-rating snapshot as a public CSV — an Elo-derived
 // rating per team, updated by their own model pipeline. No API key, no proxy needed (GitHub raw content allows
 // cross-origin reads). Used as the 25% component of the weighted power score below.
@@ -700,16 +728,25 @@ async function runAnalysis(w){
 
   try{
     const odds = await fetchWeekOdds(w);
-    try{
-      const consensus = await fetchOddsApiConsensus();
-      Object.keys(odds).forEach(key=>{
-        const c = consensus[key];
-        if(!c) return;
+    const [oddsApiRes, sgoRes] = await Promise.allSettled([fetchOddsApiConsensus(), fetchSportsGameOddsConsensus()]);
+    const oddsApiConsensus = oddsApiRes.status==='fulfilled' ? oddsApiRes.value : {};
+    const sgoConsensus = sgoRes.status==='fulfilled' ? sgoRes.value : {};
+    if(oddsApiRes.status==='rejected') console.error('The Odds API proxy unavailable', oddsApiRes.reason);
+    if(sgoRes.status==='rejected') console.error('SportsGameOdds proxy unavailable', sgoRes.reason);
+    Object.keys(odds).forEach(key=>{
+      const a = oddsApiConsensus[key], b = sgoConsensus[key];
+      if(a && b){
+        const homeProb = (a.home.prob + b.home.prob) / 2, awayProb = (a.away.prob + b.away.prob) / 2;
+        odds[key].home.prob = homeProb; odds[key].home.moneyline = probToMoneyline(homeProb);
+        odds[key].away.prob = awayProb; odds[key].away.moneyline = probToMoneyline(awayProb);
+        odds[key].source = `${a.bookCount + b.bookCount}-book blended consensus`;
+      } else if(a || b){
+        const c = a || b;
         odds[key].home.moneyline = c.home.moneyline; odds[key].home.prob = c.home.prob;
         odds[key].away.moneyline = c.away.moneyline; odds[key].away.prob = c.away.prob;
         odds[key].source = `${c.bookCount}-book consensus`;
-      });
-    }catch(e){ console.error('Odds proxy unavailable, using ESPN odds instead', e); }
+      }
+    });
     const predictorCache = {};
     for(const g of games){
       await fillPredictorFallback(odds[`${g.away}@${g.home}`], predictorCache);
