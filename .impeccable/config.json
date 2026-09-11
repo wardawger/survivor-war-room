@@ -92,6 +92,15 @@
         ],
         "createdAt": "2026-09-11T19:05:28.438Z",
         "reason": "pre-existing header brand stripe (full-width bottom border on the page header, not a card left-accent), present since commit 935776c, consistent across index.html and about.html"
+      },
+      {
+        "rule": "side-tab",
+        "value": "border-bottom:2px solid var(--ink)",
+        "files": [
+          "survivor-war-room/index.html"
+        ],
+        "createdAt": "2026-09-11T19:08:52.832Z",
+        "reason": "pre-existing section-heading underline (horizontal rule below .section-head title, not a card left-accent), present since commit 935776c, same pattern used in about.html"
       }
     ]
   }
