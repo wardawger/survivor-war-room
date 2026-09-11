@@ -31,11 +31,19 @@
 
   /* HEADER */
   header{
+    position:relative;
     background:linear-gradient(180deg,var(--field) 0%,var(--field-deep) 100%);
     color:var(--chalk);
     padding:34px 22px 26px;
     border-bottom:5px solid var(--gold);
   }
+  header .nav-about{
+    position:absolute;top:20px;right:22px;
+    font-size:12.5px;font-weight:700;color:var(--gold);
+    text-decoration:none;letter-spacing:.04em;
+    border:1px solid rgba(199,154,61,.5);border-radius:3px;padding:6px 12px;
+  }
+  header .nav-about:hover{background:rgba(199,154,61,.12);}
   header .kicker{
     font-size:12.5px;letter-spacing:.14em;color:var(--gold);
     font-weight:700;margin-bottom:6px;
@@ -164,6 +172,7 @@
 <body>
 <div class="wrap">
   <header>
+    <a class="nav-about" href="about.html">About this app →</a>
     <div class="kicker">2026 SEASON · WEEKS 1–18</div>
     <h1>Survivor War Room</h1>
     <p>Pick winners straight up, never reuse a team, and stay alive through the schedule's toughest stretch — the four-in-a-row double-pick gauntlet from Week 12 to 16.</p>
