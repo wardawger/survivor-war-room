@@ -135,6 +135,7 @@
   .pick-row .pt{display:flex;flex-direction:column;}
   .pick-row .pname{font-weight:800;font-size:14.5px;}
   .pick-row .pfactors{font-size:12px;color:var(--ink-soft);margin-top:2px;max-width:480px;}
+  .pick-row .pfuture{font-size:12px;color:var(--gold-deep);font-weight:600;margin-top:3px;max-width:480px;}
   .pick-row .pstats{text-align:right;font-size:12.5px;color:var(--ink-soft);white-space:nowrap;margin-left:10px;}
   .pick-row .pstats b{color:var(--ink);font-size:15px;}
   .summary-box{
@@ -191,7 +192,7 @@
   </table>
 
   <footer>
-    Recommendations pull live betting odds from a multi-sportsbook consensus (via The Odds API, falling back to ESPN if unavailable), injury reports from ESPN, and game-day weather from Open-Meteo each time you run analysis for a week. Weather forecasts only exist inside ~2 weeks of kickoff. This is a strategy aid, not a guarantee; verify injury designations before locking a pick.
+    Recommendations pull live betting odds from a multi-sportsbook consensus (via The Odds API, falling back to ESPN if unavailable), injury reports from ESPN, and game-day weather from Open-Meteo each time you run analysis for a week. Each candidate is also checked against its own next 3 weeks — if a stronger posted line shows up later, you'll see a "consider saving" flag instead of just this week's number. Weather and future-week forecasts only exist inside ~2 weeks of kickoff. This is a strategy aid, not a guarantee; verify injury designations before locking a pick.
   </footer>
 </div>
 
@@ -409,6 +410,7 @@ function renderAnalysisBlock(cached, w, locked){
       <div class="pt">
         <div class="pname">${TEAM_NAMES[p.team]||p.team} <span style="font-weight:500;color:var(--ink-soft);font-size:12px;">vs ${TEAM_NAMES[p.opponent]||p.opponent}</span></div>
         <div class="pfactors">${(p.keyFactors||[]).join(' · ')}${p.injuryNotes?' · '+p.injuryNotes:''}${p.weatherNotes?' · '+p.weatherNotes:''}</div>
+        ${p.futureNote?`<div class="pfuture">${p.futureNote}</div>`:''}
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
         <div class="pstats"><b>${p.winProbability?p.winProbability+'%':'—'}</b><br>${p.moneyline||''}</div>
@@ -540,6 +542,48 @@ async function fetchWeather(code, isoDate){
   }catch(e){ console.error('weather fetch failed', e); return ''; }
 }
 
+function nextOpponents(team, fromWeek, count){
+  const arr = SCHEDULE[team], list = [];
+  for(let w=fromWeek+1; w<=TOTAL_WEEKS && list.length<count; w++){
+    const val = arr[w-1];
+    if(val==='bye') continue;
+    const home = !val.startsWith('@');
+    list.push(`${home?'vs':'@'} ${val.replace('@','')} (Wk ${w})`);
+  }
+  return list;
+}
+
+// Looks a few weeks ahead for each candidate to flag when a team is worth saving for a stronger future spot.
+// Sportsbooks rarely post lines more than ~1-2 weeks out, so this only ever compares against real posted odds — never guesses.
+async function annotateFutureOutlook(candidates, currentWeek){
+  const lookaheadWeeks = [];
+  for(let w=currentWeek+1; w<=Math.min(currentWeek+3, TOTAL_WEEKS); w++) lookaheadWeeks.push(w);
+  const weekOddsByWeek = {};
+  for(const lw of lookaheadWeeks){
+    try{ weekOddsByWeek[lw] = await fetchWeekOdds(lw); }catch(e){ weekOddsByWeek[lw] = {}; }
+  }
+  candidates.forEach(c=>{
+    let best = null;
+    lookaheadWeeks.forEach(lw=>{
+      Object.values(weekOddsByWeek[lw]).forEach(m=>{
+        const side = m.home.code===c.team ? m.home : (m.away.code===c.team ? m.away : null);
+        if(!side || side.prob==null) return;
+        const opp = m.home.code===c.team ? m.away.code : m.home.code;
+        const prob = Math.round(side.prob*100);
+        if(!best || prob>best.prob) best = {week:lw, opponent:opp, prob};
+      });
+    });
+    if(best && best.prob > c.winProbability + 5){
+      c.futureNote = `Consider saving — Week ${best.week} vs ${best.opponent} looks even stronger (${best.prob}%).`;
+    } else if(best){
+      c.futureNote = `Next posted line: Week ${best.week} vs ${best.opponent} at ${best.prob}%.`;
+    } else{
+      const upcoming = nextOpponents(c.team, currentWeek, 2);
+      c.futureNote = upcoming.length ? `No lines posted yet past this week. Upcoming: ${upcoming.join(', ')}.` : '';
+    }
+  });
+}
+
 async function runAnalysis(w){
   const btn = document.getElementById('analyzeBtn');
   if(btn){ btn.disabled = true; btn.textContent = 'Pulling data…'; }
@@ -584,12 +628,13 @@ async function runAnalysis(w){
       c.injuryNotes = (injuryCache[c.eventId]||{})[c.team] || '';
       c.weatherNotes = c.isHome ? await fetchWeather(c.team, c.date) : await fetchWeather(c.opponent, c.date);
     }
+    await annotateFutureOutlook(top, w);
 
     const picks = top.map(c=>({
       team: c.team, opponent: c.opponent, winProbability: c.winProbability,
       moneyline: c.moneyline,
       keyFactors: [c.spreadDetail, c.source].filter(Boolean),
-      injuryNotes: c.injuryNotes, weatherNotes: c.weatherNotes
+      injuryNotes: c.injuryNotes, weatherNotes: c.weatherNotes, futureNote: c.futureNote
     }));
     const topRecommendation = dp ? picks.slice(0,2).map(p=>p.team) : picks.slice(0,1).map(p=>p.team);
     const leader = picks[0];
