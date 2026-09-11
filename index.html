@@ -321,16 +321,32 @@ function weekMatchups(w){
   return {games, byes};
 }
 
+// Pool state (used teams, locked picks, cached weekly analysis, selected Power Score model) is shared across
+// everyone using the app via a Netlify Function backed by Turso — so a pulled week's scoring stays put, for
+// everyone, until the next "Pull/Refresh live data" click, a lock/unlock, or a model switch. localStorage is
+// kept only as a same-device fallback for when the server is briefly unreachable.
 async function loadState(){
   try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw){ state = JSON.parse(raw); }
-  }catch(e){ /* no saved state yet */ }
+    const res = await fetch('/.netlify/functions/state');
+    if(res.ok){ state = await res.json(); localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    else throw new Error('state fetch failed: ' + res.status);
+  }catch(e){
+    console.error('Shared state unavailable, falling back to local copy', e);
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw) state = JSON.parse(raw);
+    }catch(e2){ /* no local copy either */ }
+  }
   if(!state.powerModel || !POWER_MODELS[state.powerModel]) state.powerModel = DEFAULT_POWER_MODEL; // handles state saved before the model toggle existed
 }
 async function saveState(){
-  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-  catch(e){ console.error('save failed', e); }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); // instant same-device fallback, updated regardless of server outcome
+  try{
+    const res = await fetch('/.netlify/functions/state', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state)
+    });
+    if(!res.ok) throw new Error('state save failed: ' + res.status);
+  }catch(e){ console.error('Failed to save shared state — this change is only visible on this device until it succeeds', e); }
 }
 
 function renderRules(){

@@ -254,7 +254,7 @@
       <li>No large language model, no AI-generated analysis, and no paid API calls are involved in scoring picks — every number above comes from a documented formula run in your own browser.</li>
       <li>It doesn't optimize your entire season's pick sequence at once — the future-outlook check compares a team against its own future weeks, but it isn't a full season-long solver.</li>
       <li>It doesn't account for game script, weather beyond kickoff-hour conditions, or breaking news between when you check and when you lock a pick — always double-check injury designations right before kickoff.</li>
-      <li>Your picks and used-team tracker are stored only in your own browser's local storage — nothing is sent to a server or shared with anyone else using the app.</li>
+      <li>Your picks, used-team tracker, and pulled analysis are shared with everyone using the app, stored in a small database behind a private Netlify Function — this is a single shared pool, not per-person data. Your browser also keeps a local copy as a same-device fallback for whenever that connection is briefly unavailable.</li>
     </ul>
   </div>
 
