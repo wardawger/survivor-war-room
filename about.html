@@ -109,8 +109,13 @@
   <div class="source-list">
     <div class="source">
       <div class="name">The Odds API <span class="tag">PRIMARY ODDS</span></div>
-      <div class="desc">A multi-sportsbook consensus moneyline. The app requests head-to-head (h2h) American-odds prices from every book The Odds API reports for a matchup, averages them, and converts the average into an implied win probability. Because multiple books rarely agree exactly, averaging smooths out any single book's quirks or vig. This call goes through a private Netlify Function so the API key never reaches your browser.</div>
+      <div class="desc">A multi-sportsbook consensus moneyline. The app requests head-to-head (h2h) American-odds prices from every book The Odds API reports for a matchup, averages them, and converts the average into an implied win probability. This call goes through a private Netlify Function so the API key never reaches your browser.</div>
       <div class="endpoint">api.the-odds-api.com/v4/sports/americanfootball_nfl/odds — proxied via /.netlify/functions/odds</div>
+    </div>
+    <div class="source">
+      <div class="name">SportsGameOdds <span class="tag">PRIMARY ODDS</span></div>
+      <div class="desc">A second, independent multi-sportsbook consensus, covering nine books (FanDuel, DraftKings, BetMGM, Caesars, ESPN BET, Bovada, Unibet, PointsBet, William Hill). It returns a "fair odds" value per side with the sportsbook's vig already removed — the app doesn't have to compute that itself the way it does for The Odds API. When both this and The Odds API have a line for the same game, their two probabilities are averaged together for a broader, more independent consensus than either source alone. Also proxied through a private Netlify Function.</div>
+      <div class="endpoint">api.sportsgameodds.com/v2/events — proxied via /.netlify/functions/sportsgameodds</div>
     </div>
     <div class="source">
       <div class="name">ESPN Scoreboard &amp; Odds <span class="tag">FALLBACK ODDS</span></div>
@@ -144,7 +149,7 @@
     <span class="sub">For every team in every matchup, the app tries each source in order and stops at the first one that has real data</span>
   </div>
   <div class="priority-chain">
-    <div class="step">1. The Odds API consensus</div>
+    <div class="step">1. Odds API + SportsGameOdds (blended)</div>
     <span class="arrow">→</span>
     <div class="step">2. ESPN moneyline</div>
     <span class="arrow">→</span>
@@ -153,7 +158,7 @@
     <div class="step">4. ESPN Predictor (FPI)</div>
   </div>
   <div class="prose">
-    <p>Steps 1 and 2 both start from American moneyline odds and convert them to a probability, then remove the sportsbook's built-in vig by normalizing both teams' probabilities so they sum to exactly 100%:</p>
+    <p>Step 1 draws on both consensus sources. The Odds API returns raw per-book prices, which the app averages, then removes the sportsbook's built-in vig by normalizing both teams' probabilities so they sum to exactly 100%:</p>
   </div>
   <div class="formula-box">
     impliedProb(moneyline) = moneyline &lt; 0 ? -moneyline / (-moneyline + 100) : 100 / (moneyline + 100)<br>
@@ -161,13 +166,14 @@
     fairProb(team) = impliedProb(team) / (impliedProb(home) + impliedProb(away))
   </div>
   <div class="prose">
-    <p>Step 3 applies when a moneyline hasn't been posted but a point spread has. A spread is converted to a probability with a standard logistic curve:</p>
+    <p>SportsGameOdds already returns a vig-free "fair odds" price per side, so the app only re-normalizes it as a safety check. When both sources have a line for the same game, their two fair probabilities are simply averaged — the pick's odds source then reads something like "18-book blended consensus" (9 books from each source). When only one source has the game, that one is used alone.</p>
+    <p>Step 2 and 3 apply when neither consensus source has posted a line yet. ESPN's own scoreboard sometimes carries a single book's moneyline or spread even before the two consensus sources do; a spread is converted to a probability with a standard logistic curve:</p>
   </div>
   <div class="formula-box">
     homeWinProb = 1 / (1 + 10<sup>-spread / 14</sup>)
   </div>
   <div class="prose">
-    <p>Step 4 is used when nothing has been posted at all — most commonly for games several weeks in the future. ESPN's Predictor already returns a clean win-probability percentage per team, so it's used as-is.</p>
+    <p>Step 4 is used when nothing has been posted anywhere — most commonly for games several weeks in the future. ESPN's Predictor already returns a clean win-probability percentage per team, so it's used as-is.</p>
   </div>
 
   <div class="section-head">
