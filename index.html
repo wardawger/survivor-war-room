@@ -427,7 +427,8 @@ function renderAnalysisBlock(cached, w, locked){
   const data = cached.data;
   let html = `<div class="meta">Live read as of ${new Date(cached.ts).toLocaleString()}</div>`;
   if(!data || !Array.isArray(data.picks)){
-    html += `<div class="empty-analysis">Analysis didn't parse cleanly — try re-running.</div>`;
+    const preview = (cached.raw||'').slice(0,400).replace(/</g,'&lt;');
+    html += `<div class="empty-analysis">Analysis didn't parse cleanly — try re-running.${preview?`<div style="margin-top:8px;text-align:left;font-family:monospace;font-size:11px;white-space:pre-wrap;color:var(--ink-soft);">${preview}</div>`:''}</div>`;
     return html;
   }
   const top = data.topRecommendation || [];
@@ -487,10 +488,10 @@ Keep every field concise — this must fit in a small response. Use these exact 
         "anthropic-dangerous-direct-browser-access": "true"
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
+        model: "claude-sonnet-5",
+        max_tokens: 4096,
         messages: [{ role: "user", content: prompt }],
-        tools: [{ type: "web_search_20250305", name: "web_search" }]
+        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }]
       })
     });
     const data = await response.json();
