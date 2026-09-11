@@ -403,12 +403,23 @@ function renderModelToggle(){
   el.innerHTML = `<span class="mt-label">Power Score model</span><div class="mt-options">${options}</div><span class="mt-desc">${active.desc}</span>`;
 }
 
-// Switching models changes every Power Score number the app would compute, so any already-pulled weekly analysis
-// is cleared rather than left showing numbers from the old model under the new model's label.
-function setPowerModel(id){
+// Re-derives Power Score (and the "consider saving" future-outlook note) for an already-cached week under
+// whichever model is currently selected, reusing the raw inputs stashed at pull time — no network calls, so
+// switching models doesn't force the user to pull that week's data again.
+async function recomputePowerScores(w){
+  const cached = state.cache[w];
+  if(!cached || !cached.data || !cached.scoreInputs) return;
+  const { predictorCache, nfeloRatings, pfnRankings, weekGamesByWeek, currentWeek } = cached.scoreInputs;
+  await annotateFutureOutlook(cached.data.picks, currentWeek, predictorCache, nfeloRatings, pfnRankings, weekGamesByWeek);
+}
+
+// Switching models changes every Power Score number the app would compute, so every already-pulled week's
+// analysis is recomputed under the new model — using cached inputs, not a fresh pull — rather than either
+// showing stale numbers under the wrong label or forcing the user to re-pull data they already have.
+async function setPowerModel(id){
   if(!POWER_MODELS[id] || id === state.powerModel) return;
   state.powerModel = id;
-  state.cache = {};
+  await Promise.all(Object.keys(state.cache).map(w => recomputePowerScores(Number(w))));
   saveState();
   renderModelToggle();
   renderPanel();
@@ -768,13 +779,26 @@ async function fillPredictorFallback(m, predictorCache){
 // Uses the same weighted Power Score (whichever model is currently selected — see POWER_MODELS) for every week,
 // current and future alike, so the comparison is apples-to-apples — mixing real market odds for some weeks and a
 // model for others would bias the result.
-async function annotateFutureOutlook(candidates, currentWeek, predictorCache, nfeloRatings, pfnRankings){
+// Fetches every future week's matchups once (so the caller can cache the eventIds and recompute Power Score later
+// under a different model without re-fetching anything).
+async function fetchFutureWeekGames(currentWeek){
   const weeks = [];
   for(let w=currentWeek+1; w<=TOTAL_WEEKS; w++) weeks.push(w);
   const weekGamesByWeek = {};
   await Promise.all(weeks.map(async lw=>{
     try{ weekGamesByWeek[lw] = await fetchWeekOdds(lw); }catch(e){ weekGamesByWeek[lw] = {}; }
   }));
+  return weekGamesByWeek;
+}
+
+// Looks across the rest of the season for each candidate to flag when a team is worth saving for a stronger future spot.
+// Uses the same weighted Power Score (whichever model is currently selected — see POWER_MODELS) for every week,
+// current and future alike, so the comparison is apples-to-apples — mixing real market odds for some weeks and a
+// model for others would bias the result.
+// Pure with respect to network access once predictorCache/weekGamesByWeek are populated — safe to re-run for a
+// newly-selected model without fetching anything again.
+async function annotateFutureOutlook(candidates, currentWeek, predictorCache, nfeloRatings, pfnRankings, weekGamesByWeek){
+  const weeks = Object.keys(weekGamesByWeek).map(Number);
 
   for(const c of candidates){
     const currentPower = await computePowerScore(
@@ -862,15 +886,18 @@ async function runAnalysis(w){
       c.injuryNotes = (injuryCache[c.eventId]||{})[c.team] || '';
       c.weatherNotes = c.isHome ? await fetchWeather(c.team, c.date) : await fetchWeather(c.opponent, c.date);
     }
-    const [nfeloRatings, pfnRankings] = await Promise.all([fetchNfeloRatings(), fetchPfnRankings()]);
-    await annotateFutureOutlook(top, w, predictorCache, nfeloRatings, pfnRankings);
+    const [nfeloRatings, pfnRankings, weekGamesByWeek] = await Promise.all([
+      fetchNfeloRatings(), fetchPfnRankings(), fetchFutureWeekGames(w)
+    ]);
+    await annotateFutureOutlook(top, w, predictorCache, nfeloRatings, pfnRankings, weekGamesByWeek);
 
     const picks = top.map(c=>({
       team: c.team, opponent: c.opponent, winProbability: c.winProbability,
       moneyline: c.moneyline,
       keyFactors: [c.spreadDetail, c.source].filter(Boolean),
       injuryNotes: c.injuryNotes, weatherNotes: c.weatherNotes, futureNote: c.futureNote,
-      powerScorePct: c.powerScorePct
+      powerScorePct: c.powerScorePct,
+      isHome: c.isHome, eventId: c.eventId // kept so Power Score can be recomputed for a different model without re-fetching
     }));
     const topRecommendation = dp ? picks.slice(0,2).map(p=>p.team) : picks.slice(0,1).map(p=>p.team);
     const leader = picks[0];
@@ -879,7 +906,12 @@ async function runAnalysis(w){
       ? `${TEAM_NAMES[leader.team]} is this week's strongest survivor play at ${leader.winProbability!=null?leader.winProbability+'%':'an unknown'} implied win probability (${leader.moneyline||'no line yet'}). Odds from ${oddsSourceLabel}, weather from Open-Meteo — re-run close to kickoff for the freshest read.`
       : 'No odds available yet for this week — lines are usually posted a week or two out. Try again closer to kickoff.';
 
-    state.cache[w] = { data: {picks, topRecommendation, summary}, ts: Date.now(), raw: null };
+    // scoreInputs holds everything computePowerScore/annotateFutureOutlook needs — recomputePowerScores() reuses
+    // these to update the Power Score numbers when the user switches models, with no network calls at all.
+    state.cache[w] = {
+      data: {picks, topRecommendation, summary}, ts: Date.now(), raw: null,
+      scoreInputs: { predictorCache, nfeloRatings, pfnRankings, weekGamesByWeek, currentWeek: w }
+    };
     await saveState();
   }catch(e){
     console.error(e);

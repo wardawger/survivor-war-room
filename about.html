@@ -202,7 +202,7 @@
   </div>
   <div class="prose">
     <p>Yalango's 60/20/20 split briefly ran as 75/25 (FPI/nfelo only, now preserved as the "No Vibes" option) after CBS, The Athletic, and ESPN's editorial power rankings — the media sources originally slated for that third 20% slice — turned out to have no public API, be fully paywalled, or require fragile page-scraping that breaks whenever the article format changes. Pro Football Network's consensus ranking fills that slot instead in Yalango: its own page already blends five outlets into one number per team, and — unlike those other sources — it publishes that number as structured data the page embeds for its own use, not just as prose.</p>
-    <p>Switching models clears any already-pulled weekly analysis, since every Power Score number would change — pull live data again after switching to see numbers under the new model.</p>
+    <p>Switching models re-derives the Power Score (and the "consider saving" note) for every week you've already pulled, instantly and without a fresh pull — the raw ingredients it's built from (ESPN's Predictor, nfelo ratings, PFN ranks, and every remaining week's matchups) are cached at pull time, so recomputing under a different weighting needs no new network requests. Everything else about a pulled week — the candidate list, odds, injuries, weather — is model-independent and stays exactly as it was.</p>
     <p>nfelo's rating isn't a win probability by itself — it's an Elo-style score, so it's converted using the standard Elo win-probability formula, with an assumed home-field advantage of 48 Elo points (a commonly cited estimate in Elo-based NFL models):</p>
   </div>
   <div class="formula-box">
