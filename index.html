@@ -192,7 +192,7 @@
   </table>
 
   <footer>
-    Recommendations pull live betting odds from a multi-sportsbook consensus (via The Odds API, falling back to ESPN if unavailable), injury reports from ESPN, and game-day weather from Open-Meteo each time you run analysis for a week. Each candidate is also checked against the rest of its season: real posted lines where they exist, and a point-differential model (this season blended with last season's results, plus home-field edge) everywhere else — so you'll see a "consider saving" flag whenever a later week, even one without odds posted yet, looks like a stronger spot. Weather forecasts only exist inside ~2 weeks of kickoff. This is a strategy aid, not a guarantee; verify injury designations before locking a pick.
+    Recommendations pull live betting odds from a multi-sportsbook consensus (via The Odds API, falling back to ESPN's posted spread if unavailable), injury reports from ESPN, and game-day weather from Open-Meteo each time you run analysis for a week. Each candidate is also checked against the rest of its season — real posted lines where they exist, and ESPN's own FPI-based Predictor for any game that doesn't have one yet — so you'll see a "consider saving" flag whenever a later week looks like a stronger spot. Weather forecasts only exist inside ~2 weeks of kickoff. This is a strategy aid, not a guarantee; verify injury designations before locking a pick.
   </footer>
 </div>
 
