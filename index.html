@@ -965,7 +965,7 @@ async function mapFullSeason(){
     if(lockedCount >= needed) continue;
 
     if(btn) btn.textContent = `Mapping week ${w} of ${TOTAL_WEEKS}…`;
-    if(!state.cache[w] || !state.cache[w].data) await runAnalysis(w);
+    if(!state.cache[w] || !state.cache[w].data || !state.cache[w].data.allCandidates) await runAnalysis(w); // re-pull if stale (pre-dates allCandidates)
     const pool = ((state.cache[w]||{}).data||{}).allCandidates || [];
 
     const available = pool
