@@ -187,6 +187,10 @@
   table.roadmap tr:nth-child(even) td{background:#F2EEDF;}
   table.roadmap td.dp-cell{color:var(--gold-deep);font-weight:700;}
   table.roadmap td.pick-cell{font-weight:700;}
+  .suggested-pick{
+    display:inline-flex;align-items:center;gap:3px;color:var(--ink-soft);font-weight:600;
+    border:1px dashed var(--line);border-radius:3px;padding:1px 5px;
+  }
   table.roadmap tr.current td{outline:2px solid var(--field);outline-offset:-2px;}
 
   footer{margin:34px 22px 0;font-size:11.5px;color:var(--ink-soft);line-height:1.6;}
@@ -223,7 +227,10 @@
 
   <div class="section-head">
     <h2>Season roadmap</h2>
-    <span class="sub">Locked picks carry forward automatically</span>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span class="sub">Locked picks carry forward automatically · dashed = suggested, not locked</span>
+      <button class="btn small" id="mapFullBtn" onclick="mapFullSeason()">Map Full</button>
+    </div>
   </div>
   <div class="roadmap-scroll">
     <table class="roadmap">
@@ -306,7 +313,7 @@ function teamLogoUrl(code){ return `https://a.espncdn.com/i/teamlogos/nfl/500/${
 function teamLogoImg(code, size){ return `<img class="team-logo" src="${teamLogoUrl(code)}" alt="" width="${size||18}" height="${size||18}" loading="lazy">`; }
 const NAME_TO_CODE = Object.fromEntries(Object.entries(TEAM_NAMES).map(([code,name])=>[name,code]));
 
-let state = { usedTeams: [], picks: {}, cache: {}, powerModel: 'yalango' }; // 'yalango' must match DEFAULT_POWER_MODEL below (declared later, so not referenced here directly)
+let state = { usedTeams: [], picks: {}, cache: {}, powerModel: 'yalango', mappedPicks: {} }; // 'yalango' must match DEFAULT_POWER_MODEL below (declared later, so not referenced here directly)
 let selectedWeek = 1;
 let stateVersion = null;
 
@@ -338,6 +345,7 @@ async function loadState(){
     }catch(e2){ /* no local copy either */ }
   }
   if(!state.powerModel || !POWER_MODELS[state.powerModel]) state.powerModel = DEFAULT_POWER_MODEL; // handles state saved before the model toggle existed
+  if(!state.mappedPicks) state.mappedPicks = {}; // handles state saved before Map Full existed
 }
 async function saveState(){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); // instant same-device fallback, updated regardless of server outcome
@@ -377,6 +385,7 @@ function renderTracker(){
 function toggleUsed(code){
   const i = state.usedTeams.indexOf(code);
   if(i>-1) state.usedTeams.splice(i,1); else state.usedTeams.push(code);
+  state.mappedPicks = {}; // team availability changed season-wide; stale suggestions would be misleading — re-run Map Full
   saveState();
   renderTracker();
   renderPanel();
@@ -411,6 +420,11 @@ async function recomputePowerScores(w){
   if(!cached || !cached.data || !cached.scoreInputs) return;
   const { predictorCache, nfeloRatings, pfnRankings, weekGamesByWeek, currentWeek } = cached.scoreInputs;
   await annotateFutureOutlook(cached.data.picks, currentWeek, predictorCache, nfeloRatings, pfnRankings, weekGamesByWeek);
+  for(const c of cached.data.allCandidates || []){
+    const power = await computePowerScore(c.isHome?c.team:c.opponent, c.isHome?c.opponent:c.team, c.eventId, nfeloRatings, predictorCache, pfnRankings);
+    const side = c.isHome ? power.home : power.away;
+    c.powerScorePct = side!=null ? Math.round(side*100) : null;
+  }
 }
 
 // Switching models changes every Power Score number the app would compute, so every already-pulled week's
@@ -429,12 +443,14 @@ function lockPick(week, code){
   if(!state.picks[week]) state.picks[week] = [];
   if(!state.picks[week].includes(code)) state.picks[week].push(code);
   if(!state.usedTeams.includes(code)) state.usedTeams.push(code);
+  if(state.mappedPicks) delete state.mappedPicks[week]; // superseded by the real lock; re-run Map Full to refresh the rest
   saveState();
   renderTracker(); renderPanel(); renderRoadmap();
 }
 function unlockPick(week, code){
   if(state.picks[week]) state.picks[week] = state.picks[week].filter(c=>c!==code);
   state.usedTeams = state.usedTeams.filter(c=>c!==code);
+  state.mappedPicks = {}; // team availability changed season-wide; stale suggestions would be misleading — re-run Map Full
   saveState();
   renderTracker(); renderPanel(); renderRoadmap();
 }
@@ -862,6 +878,9 @@ async function runAnalysis(w){
     for(const g of games){
       await fillPredictorFallback(odds[`${g.away}@${g.home}`], predictorCache);
     }
+    const [nfeloRatings, pfnRankings, weekGamesByWeek] = await Promise.all([
+      fetchNfeloRatings(), fetchPfnRankings(), fetchFutureWeekGames(w)
+    ]);
     const candidates = [];
     games.forEach(g=>{
       const m = odds[`${g.away}@${g.home}`];
@@ -877,6 +896,17 @@ async function runAnalysis(w){
         });
       });
     });
+    // Power Score for every candidate (not just the top 5) so "Map Full" has a full pool to pick a season plan from —
+    // cheap since predictorCache/nfeloRatings/pfnRankings are already fully populated by this point, no new fetches.
+    for(const c of candidates){
+      const power = await computePowerScore(
+        c.isHome?c.team:c.opponent, c.isHome?c.opponent:c.team, c.eventId, nfeloRatings, predictorCache, pfnRankings
+      );
+      const side = c.isHome ? power.home : power.away;
+      c.powerScore = side; c.powerScorePct = side!=null ? Math.round(side*100) : null;
+    }
+    const allCandidates = candidates.map(c=>({team:c.team, opponent:c.opponent, powerScorePct:c.powerScorePct, eventId:c.eventId, isHome:c.isHome}));
+
     candidates.sort((a,b)=> (b.winProbability||0) - (a.winProbability||0));
     const top = candidates.slice(0,5);
 
@@ -886,9 +916,6 @@ async function runAnalysis(w){
       c.injuryNotes = (injuryCache[c.eventId]||{})[c.team] || '';
       c.weatherNotes = c.isHome ? await fetchWeather(c.team, c.date) : await fetchWeather(c.opponent, c.date);
     }
-    const [nfeloRatings, pfnRankings, weekGamesByWeek] = await Promise.all([
-      fetchNfeloRatings(), fetchPfnRankings(), fetchFutureWeekGames(w)
-    ]);
     await annotateFutureOutlook(top, w, predictorCache, nfeloRatings, pfnRankings, weekGamesByWeek);
 
     const picks = top.map(c=>({
@@ -909,7 +936,7 @@ async function runAnalysis(w){
     // scoreInputs holds everything computePowerScore/annotateFutureOutlook needs — recomputePowerScores() reuses
     // these to update the Power Score numbers when the user switches models, with no network calls at all.
     state.cache[w] = {
-      data: {picks, topRecommendation, summary}, ts: Date.now(), raw: null,
+      data: {picks, topRecommendation, summary, allCandidates}, ts: Date.now(), raw: null,
       scoreInputs: { predictorCache, nfeloRatings, pfnRankings, weekGamesByWeek, currentWeek: w }
     };
     await saveState();
@@ -922,6 +949,40 @@ async function runAnalysis(w){
   renderRoadmap();
 }
 
+// Greedily plans a suggested pick for every remaining week, in chronological order, ranked by Power Score —
+// the season-consistent metric — never reusing a team already locked in or already suggested earlier in this
+// same plan. Pulls live data for any week that hasn't been analyzed yet. Purely a preview: never touches
+// state.usedTeams or state.picks, so nothing gets locked.
+async function mapFullSeason(){
+  const btn = document.getElementById('mapFullBtn');
+  if(btn){ btn.disabled = true; }
+  const simulatedUsed = new Set(state.usedTeams);
+  const mapped = {};
+  for(let w=1; w<=TOTAL_WEEKS; w++){
+    const dp = DOUBLE_PICK_WEEKS.includes(w);
+    const needed = dp ? 2 : 1;
+    const lockedCount = (state.picks[w]||[]).length;
+    if(lockedCount >= needed) continue;
+
+    if(btn) btn.textContent = `Mapping week ${w} of ${TOTAL_WEEKS}…`;
+    if(!state.cache[w] || !state.cache[w].data) await runAnalysis(w);
+    const pool = ((state.cache[w]||{}).data||{}).allCandidates || [];
+
+    const available = pool
+      .filter(c => !simulatedUsed.has(c.team) && c.powerScorePct!=null)
+      .sort((a,b) => b.powerScorePct - a.powerScorePct);
+
+    const picks = available.slice(0, needed - lockedCount);
+    picks.forEach(c => simulatedUsed.add(c.team));
+    if(picks.length) mapped[w] = picks.map(c=>c.team);
+  }
+  state.mappedPicks = mapped;
+  await saveState();
+  if(btn){ btn.disabled = false; btn.textContent = 'Map Full'; }
+  renderRoadmap();
+  renderPanel();
+}
+
 function renderRoadmap(){
   const body = document.getElementById('roadmapBody');
   let html='';
@@ -929,15 +990,20 @@ function renderRoadmap(){
     const {games} = weekMatchups(w);
     const dp = DOUBLE_PICK_WEEKS.includes(w);
     const locked = state.picks[w] || [];
+    const suggested = (state.mappedPicks && state.mappedPicks[w]) || [];
     const cached = state.cache[w];
     let status = 'Not analyzed';
     if(locked.length) status = dp && locked.length<2 ? 'Partially locked' : 'Locked';
+    else if(suggested.length) status = 'Mapped (not locked)';
     else if(cached) status = 'Analysis ready';
+    const lockedHtml = locked.map(c=>`${teamLogoImg(c,16)} ${c}`).join(' + ');
+    const suggestedHtml = suggested.map(c=>`<span class="suggested-pick">${teamLogoImg(c,16)} ${c}</span>`).join(' + ');
+    const pickHtml = [lockedHtml, suggestedHtml].filter(Boolean).join(' + ') || '—';
     html += `<tr class="${w===selectedWeek?'current':''}">
       <td>${w}</td>
       <td>${games.length}</td>
       <td class="dp-cell">${dp?'Yes':'—'}</td>
-      <td class="pick-cell">${locked.length? locked.map(c=>`${teamLogoImg(c,16)} ${c}`).join(' + ') : '—'}</td>
+      <td class="pick-cell">${pickHtml}</td>
       <td>${status}</td>
     </tr>`;
   }
