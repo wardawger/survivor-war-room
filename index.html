@@ -84,12 +84,18 @@
 
   /* SECTION TITLES */
   .section-head{
-    display:flex;align-items:baseline;justify-content:space-between;
+    display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:6px 14px;
     margin:34px 22px 12px;
     border-bottom:2px solid var(--ink);
     padding-bottom:8px;
   }
-  .section-head h2{margin:0;font-size:19px;font-weight:800;}
+  .section-head h2{margin:0;font-size:19px;font-weight:800;white-space:nowrap;}
+  .section-head .head-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;}
+  .section-head .btn.small{white-space:nowrap;}
+
+  @media (max-width:520px){
+    .section-head{flex-direction:column;align-items:flex-start;}
+  }
   .section-head .sub{font-size:12.5px;color:var(--ink-soft);}
 
   /* TEAM TRACKER */
@@ -229,7 +235,7 @@
 
   <div class="section-head">
     <h2>Season roadmap</h2>
-    <div style="display:flex;align-items:center;gap:10px;">
+    <div class="head-actions">
       <span class="sub">Locked picks carry forward automatically · dashed = suggested, not locked</span>
       <button class="btn small" id="mapFullBtn" onclick="mapFullSeason()">Map Full</button>
     </div>
