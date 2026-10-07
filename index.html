@@ -164,6 +164,10 @@
   .matchup .vs{color:var(--ink-soft);font-size:11px;margin:0 6px;}
   .matchup .side{display:flex;align-items:center;gap:6px;min-width:0;}
   .matchup .side span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .matchup-list.scored{grid-template-columns:repeat(auto-fill,minmax(210px,1fr));}
+  .matchup .score{flex-shrink:0;margin-left:2px;font-variant-numeric:tabular-nums;font-weight:600;}
+  .matchup .side.win{font-weight:800;}
+  .matchup .side.lose{color:var(--ink-soft);}
   .team-logo{object-fit:contain;flex-shrink:0;vertical-align:middle;}
   .byes{padding:0 16px 14px;font-size:12.5px;color:var(--ink-soft);}
 
@@ -431,6 +435,39 @@ async function resolveCurrentPickWeek(){
   }catch(e){ console.error('current week lookup failed', e); }
 }
 
+// Final scores for the matchup list, from ESPN's scoreboard. A week whose games are all final never changes, so it is
+// fetched once per session; a week still in progress is re-fetched at most every 5 minutes. Unplayed future weeks are skipped.
+const scoresByWeek = {};
+const SCORE_REFRESH_MS = 5 * 60 * 1000;
+async function ensureScores(w){
+  if(currentPickWeek && w > currentPickWeek) return;
+  const entry = scoresByWeek[w];
+  if(entry && (entry.allFinal || Date.now() - entry.ts < SCORE_REFRESH_MS)) return;
+  // stamp before fetching so the re-render this triggers (and any concurrent renders) can't start another fetch
+  scoresByWeek[w] = { ts: Date.now(), allFinal: false, games: entry ? entry.games : {} };
+  try{
+    const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week=${w}&year=2026&seasontype=2`);
+    if(!res.ok) return;
+    const json = await res.json();
+    const events = json.events || [];
+    const games = {};
+    let allFinal = events.length > 0;
+    events.forEach(ev=>{
+      const comp = (ev.competitions || [])[0];
+      if(!comp) return;
+      const type = ((comp.status || ev.status || {}).type) || {};
+      if(!type.completed){ allFinal = false; return; }
+      const home = comp.competitors.find(c => c.homeAway === 'home');
+      const away = comp.competitors.find(c => c.homeAway === 'away');
+      if(!home || !away) return;
+      games[`${fromEspnAbbr(away.team.abbreviation)}@${fromEspnAbbr(home.team.abbreviation)}`] =
+        { away: Number(away.score), home: Number(home.score), detail: type.shortDetail || type.detail };
+    });
+    scoresByWeek[w] = { ts: Date.now(), allFinal, games };
+    if(selectedWeek === w) renderPanel();
+  }catch(e){ console.error('score fetch failed', e); }
+}
+
 function renderWeekTabs(){
   const el = document.getElementById('weektabs');
   let html='';
@@ -528,14 +565,19 @@ function renderPanel(){
     </div>
   </div>`;
 
-  html += `<div class="matchup-list">`;
+  ensureScores(w);
+  const scores = (scoresByWeek[w] || {}).games || {};
+  html += `<div class="matchup-list ${Object.keys(scores).length ? 'scored' : ''}">`;
   games.forEach(g=>{
     const usedAway = state.usedTeams.includes(g.away) && !locked.includes(g.away);
     const usedHome = state.usedTeams.includes(g.home) && !locked.includes(g.home);
-    html += `<div class="matchup" title="${TEAM_NAMES[g.away]} at ${TEAM_NAMES[g.home]}">
-      <span class="side" style="${usedAway?'opacity:.4;text-decoration:line-through;':''}">${teamLogoImg(g.away)}<span>${g.away}</span></span>
-      <span class="vs">at</span>
-      <span class="side" style="${usedHome?'opacity:.4;text-decoration:line-through;':''}">${teamLogoImg(g.home)}<span>${g.home}</span></span>
+    const s = scores[`${g.away}@${g.home}`];
+    const awayWin = !!s && s.away > s.home, homeWin = !!s && s.home > s.away;
+    const side = (code, used, pts, win, lose) => `<span class="side ${win?'win':''} ${lose?'lose':''}" style="${used?'opacity:.4;text-decoration:line-through;':''}">${teamLogoImg(code)}<span>${code}</span>${s?`<span class="score">${pts}</span>`:''}</span>`;
+    html += `<div class="matchup ${s?'final':''}" title="${TEAM_NAMES[g.away]} at ${TEAM_NAMES[g.home]}${s?` — ${s.detail||'Final'}: ${s.away}-${s.home}`:''}">
+      ${side(g.away, usedAway, s&&s.away, awayWin, homeWin)}
+      <span class="vs">${s?'@':'at'}</span>
+      ${side(g.home, usedHome, s&&s.home, homeWin, awayWin)}
     </div>`;
   });
   html += `</div>`;
