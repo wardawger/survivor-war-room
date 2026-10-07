@@ -121,6 +121,8 @@
     font-size:13px;font-weight:700;cursor:pointer;color:var(--ink-soft);border-radius:3px;
   }
   .weektab.active{background:var(--field);color:var(--chalk);border-color:var(--field);}
+  .weektab.now{box-shadow:inset 0 -3px 0 var(--gold);}
+  .analysis .meta .stale{color:var(--danger);}
   .weektab .dp{
     position:absolute;top:-7px;right:-7px;background:var(--gold);color:var(--field-deep);
     font-size:9.5px;font-weight:800;border-radius:8px;padding:1px 4px;line-height:1.3;
@@ -400,12 +402,42 @@ function toggleUsed(code){
   renderRoadmap();
 }
 
+// FPI refreshes daily and lines move constantly, so a pull older than this is treated as stale: flagged in the UI and
+// re-fetched by Map Full instead of trusted. A pull that predates allCandidates (or failed) counts as stale too.
+const FRESH_MS = 12 * 60 * 60 * 1000;
+function isCacheStale(w){
+  const c = state.cache[w];
+  return !c || !c.data || !c.data.allCandidates || !c.ts || (Date.now() - c.ts) > FRESH_MS;
+}
+function formatAge(ts){
+  const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
+  if(mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  return hrs < 48 ? `${hrs}h ago` : `${Math.round(hrs / 24)}d ago`;
+}
+
+// The week still open to pick: ESPN's current regular-season week, or the next one once every game that week is final.
+let currentPickWeek = null;
+async function resolveCurrentPickWeek(){
+  try{
+    const res = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard');
+    if(!res.ok) return;
+    const json = await res.json();
+    const week = (json.week || {}).number;
+    if(!week || (json.season || {}).type !== 2) return;
+    const events = json.events || [];
+    const allFinal = events.length > 0 && events.every(e => ((e.status || {}).type || {}).completed);
+    currentPickWeek = Math.min(TOTAL_WEEKS, allFinal ? week + 1 : week);
+  }catch(e){ console.error('current week lookup failed', e); }
+}
+
 function renderWeekTabs(){
   const el = document.getElementById('weektabs');
   let html='';
   for(let w=1; w<=TOTAL_WEEKS; w++){
     const dp = DOUBLE_PICK_WEEKS.includes(w);
-    html += `<div class="weektab ${w===selectedWeek?'active':''}" onclick="selectWeek(${w})">Wk ${w}${dp?'<span class="dp">2×</span>':''}</div>`;
+    const now = w===currentPickWeek;
+    html += `<div class="weektab ${w===selectedWeek?'active':''} ${now?'now':''}" ${now?'title="Current pick week"':''} onclick="selectWeek(${w})">Wk ${w}${dp?'<span class="dp">2×</span>':''}</div>`;
   }
   el.innerHTML = html;
 }
@@ -529,7 +561,8 @@ function renderPanel(){
 
 function renderAnalysisBlock(cached, w, locked){
   const data = cached.data;
-  let html = `<div class="meta">Live read as of ${new Date(cached.ts).toLocaleString()}</div>`;
+  const stale = (Date.now() - cached.ts) > FRESH_MS;
+  let html = `<div class="meta">Live read as of ${new Date(cached.ts).toLocaleString()} (${formatAge(cached.ts)})${stale ? ' — <strong class="stale">stale: refresh before relying on it</strong>' : ''}</div>`;
   if(!data || !Array.isArray(data.picks)){
     const preview = (cached.raw||'').slice(0,400).replace(/</g,'&lt;');
     html += `<div class="empty-analysis">Analysis didn't parse cleanly — try re-running.${preview?`<div style="margin-top:8px;text-align:left;font-family:monospace;font-size:11px;white-space:pre-wrap;color:var(--ink-soft);">${preview}</div>`:''}</div>`;
@@ -912,7 +945,6 @@ async function runAnalysis(w){
       const m = odds[`${g.away}@${g.home}`];
       if(!m) return;
       [{side:m.home, opp:m.away, home:true}, {side:m.away, opp:m.home, home:false}].forEach(entry=>{
-        if(state.usedTeams.includes(entry.side.code)) return;
         candidates.push({
           team: entry.side.code, opponent: entry.opp.code,
           winProbability: entry.side.prob!=null ? Math.round(entry.side.prob*100) : null,
@@ -933,8 +965,10 @@ async function runAnalysis(w){
     }
     const allCandidates = candidates.map(c=>({team:c.team, opponent:c.opponent, powerScorePct:c.powerScorePct, eventId:c.eventId, isHome:c.isHome}));
 
+    // allCandidates deliberately includes teams that are used right now: the used set changes after this pull is cached
+    // (unlocking frees a team), so Map Full filters against the live used set when it reads the pool, not at pull time.
     candidates.sort((a,b)=> (b.winProbability||0) - (a.winProbability||0));
-    const top = candidates.slice(0,5);
+    const top = candidates.filter(c => !state.usedTeams.includes(c.team)).slice(0,5);
 
     const injuryCache = {};
     for(const c of top){
@@ -984,14 +1018,15 @@ async function mapFullSeason(){
   if(btn){ btn.disabled = true; }
   const simulatedUsed = new Set(state.usedTeams);
   const mapped = {};
-  for(let w=1; w<=TOTAL_WEEKS; w++){
+  // Weeks already played can't be picked, so they are neither planned nor allowed to consume teams from the plan.
+  for(let w=currentPickWeek || 1; w<=TOTAL_WEEKS; w++){
     const dp = DOUBLE_PICK_WEEKS.includes(w);
     const needed = dp ? 2 : 1;
     const lockedCount = (state.picks[w]||[]).length;
     if(lockedCount >= needed) continue;
 
     if(btn) btn.textContent = `Mapping week ${w} of ${TOTAL_WEEKS}…`;
-    if(!state.cache[w] || !state.cache[w].data || !state.cache[w].data.allCandidates) await runAnalysis(w); // re-pull if stale (pre-dates allCandidates)
+    if(isCacheStale(w)) await runAnalysis(w); // never plan from a pull older than FRESH_MS
     const pool = ((state.cache[w]||{}).data||{}).allCandidates || [];
 
     const available = pool
@@ -1021,7 +1056,7 @@ function renderRoadmap(){
     let status = 'Not analyzed';
     if(locked.length) status = dp && locked.length<2 ? 'Partially locked' : 'Locked';
     else if(suggested.length) status = 'Mapped (not locked)';
-    else if(cached) status = 'Analysis ready';
+    else if(cached) status = isCacheStale(w) ? 'Analysis stale' : 'Analysis ready';
     const lockedHtml = locked.map(c=>`${teamLogoImg(c,16)} ${c}`).join(' + ');
     const suggestedHtml = suggested.map(c=>`<span class="suggested-pick">${teamLogoImg(c,16)} ${c}</span>`).join(' + ');
     const pickHtml = [lockedHtml, suggestedHtml].filter(Boolean).join(' + ') || '—';
@@ -1037,7 +1072,8 @@ function renderRoadmap(){
 }
 
 (async function init(){
-  await loadState();
+  await Promise.all([loadState(), resolveCurrentPickWeek()]);
+  if(currentPickWeek) selectedWeek = currentPickWeek;
   renderRules();
   renderTracker();
   renderModelToggle();

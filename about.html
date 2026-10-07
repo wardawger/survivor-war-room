@@ -249,6 +249,20 @@
   </div>
 
   <div class="section-head">
+    <h2>How fresh the data is</h2>
+    <span class="sub">What updates on its own, what only updates when you pull, and what the app does about old pulls</span>
+  </div>
+  <div class="prose">
+    <ul>
+      <li><strong>Current week:</strong> on load, the app asks ESPN which week is in progress and opens on it — or on the next week once every game in the current one is final. That week gets a gold underline on its tab.</li>
+      <li><strong>Source cadence:</strong> ESPN's FPI projections refresh daily; nfelo ratings update weekly after the games are played; sportsbook odds are cached for at most five minutes. Everything is fetched fresh whenever you pull a week.</li>
+      <li><strong>Pulls go stale:</strong> a pulled week is a snapshot. After 12 hours the analysis is flagged "stale" (in the week panel and the roadmap status) so you know to refresh it before relying on it.</li>
+      <li><strong>Map Full never plans from old data:</strong> it starts at the current pick week (weeks already played can't be picked, so they're skipped) and automatically re-pulls any week whose snapshot is older than 12 hours.</li>
+      <li><strong>Switching models doesn't re-fetch:</strong> it recomputes Power Scores from the inputs saved at pull time, so a stale pull stays stale under either model until you refresh it.</li>
+    </ul>
+  </div>
+
+  <div class="section-head">
     <h2>What this app doesn't do</h2>
   </div>
   <div class="prose">
