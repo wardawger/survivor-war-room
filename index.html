@@ -447,11 +447,29 @@ async function setPowerModel(id){
   renderPanel();
 }
 
+// A suggested pick is only valid while its team is still unused (not locked in any week, not manually marked used)
+// and the week still has an open slot for it. Pure, so the roadmap can render it even from stale or shared state.
+function validSuggestions(w){
+  const open = (DOUBLE_PICK_WEEKS.includes(w) ? 2 : 1) - (state.picks[w]||[]).length;
+  if(open <= 0) return [];
+  return ((state.mappedPicks && state.mappedPicks[w]) || [])
+    .filter(code => !state.usedTeams.includes(code))
+    .slice(0, open);
+}
+function pruneMappedPicks(){
+  const pruned = {};
+  for(let w=1; w<=TOTAL_WEEKS; w++){
+    const keep = validSuggestions(w);
+    if(keep.length) pruned[w] = keep;
+  }
+  state.mappedPicks = pruned;
+}
+
 function lockPick(week, code){
   if(!state.picks[week]) state.picks[week] = [];
   if(!state.picks[week].includes(code)) state.picks[week].push(code);
   if(!state.usedTeams.includes(code)) state.usedTeams.push(code);
-  if(state.mappedPicks) delete state.mappedPicks[week]; // superseded by the real lock; re-run Map Full to refresh the rest
+  pruneMappedPicks(); // the locked team can't be suggested for any other week; re-run Map Full to refill gaps
   saveState();
   renderTracker(); renderPanel(); renderRoadmap();
 }
@@ -998,7 +1016,7 @@ function renderRoadmap(){
     const {games} = weekMatchups(w);
     const dp = DOUBLE_PICK_WEEKS.includes(w);
     const locked = state.picks[w] || [];
-    const suggested = (state.mappedPicks && state.mappedPicks[w]) || [];
+    const suggested = validSuggestions(w);
     const cached = state.cache[w];
     let status = 'Not analyzed';
     if(locked.length) status = dp && locked.length<2 ? 'Partially locked' : 'Locked';
