@@ -653,7 +653,7 @@ function renderAnalysisBlock(cached, w, locked){
       </div>
     </div>`;
   });
-  const summary = available.length ? buildSummary(available[0], data.oddsSourceLabel)
+  const summary = available.length ? buildSummary(available[0])
     : eligible.length ? 'No eligible candidates remain from this pull — every game has started or those teams are already used. Refresh for a re-ranked list.'
     : data.summary;
   if(summary){
@@ -663,8 +663,12 @@ function renderAnalysisBlock(cached, w, locked){
   return html;
 }
 
-function buildSummary(leader, oddsSourceLabel){
-  return `${TEAM_NAMES[leader.team]} is this week's strongest survivor play at ${leader.winProbability!=null?leader.winProbability+'%':'an unknown'} implied win probability (${leader.moneyline||'no line yet'}). Odds from ${oddsSourceLabel || 'ESPN'}, weather from Open-Meteo — re-run close to kickoff for the freshest read.`;
+// The odds label is the recommended team's own source. Pulls from before `source` was stored kept it as the last
+// keyFactors entry whenever there were two.
+function buildSummary(leader){
+  const kf = leader.keyFactors || [];
+  const label = leader.source || (kf.length > 1 ? kf[kf.length - 1] : 'ESPN');
+  return `${TEAM_NAMES[leader.team]} is this week's strongest survivor play at ${leader.winProbability!=null?leader.winProbability+'%':'an unknown'} implied win probability (${leader.moneyline||'no line yet'}). Odds from ${label}, weather from Open-Meteo — re-run close to kickoff for the freshest read.`;
 }
 
 function impliedProb(moneyline){
@@ -1057,7 +1061,7 @@ async function runAnalysis(w){
     const picks = top.map(c=>({
       team: c.team, opponent: c.opponent, winProbability: c.winProbability,
       moneyline: c.moneyline,
-      keyFactors: [c.spreadDetail, c.source].filter(Boolean),
+      keyFactors: [c.spreadDetail, c.source].filter(Boolean), source: c.source,
       injuryNotes: c.injuryNotes, weatherNotes: c.weatherNotes, futureNote: c.futureNote,
       powerScorePct: c.powerScorePct,
       isHome: c.isHome, eventId: c.eventId, // kept so Power Score can be recomputed for a different model without re-fetching
@@ -1065,15 +1069,14 @@ async function runAnalysis(w){
     }));
     const topRecommendation = dp ? picks.slice(0,2).map(p=>p.team) : picks.slice(0,1).map(p=>p.team);
     const leader = picks[0];
-    const oddsSourceLabel = (top[0] && top[0].source) || 'ESPN';
     const summary = leader
-      ? buildSummary(leader, oddsSourceLabel)
+      ? buildSummary(leader)
       : 'No eligible candidates this week — lines are usually posted a week or two out, and teams in games that have already started or that you have already used are excluded. Try again closer to kickoff.';
 
     // scoreInputs holds everything computePowerScore/annotateFutureOutlook needs — recomputePowerScores() reuses
     // these to update the Power Score numbers when the user switches models, with no network calls at all.
     state.cache[w] = {
-      data: {picks, topRecommendation, summary, allCandidates, oddsSourceLabel}, ts: Date.now(), raw: null,
+      data: {picks, topRecommendation, summary, allCandidates}, ts: Date.now(), raw: null,
       scoreInputs: { predictorCache, nfeloRatings, pfnRankings, weekGamesByWeek, currentWeek: w }
     };
     await saveState();
