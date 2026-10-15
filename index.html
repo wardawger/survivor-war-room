@@ -174,6 +174,10 @@
 
   .analysis{padding:14px 16px;border-top:1px solid var(--line);}
   .analysis .meta{font-size:11.5px;color:var(--ink-soft);margin-bottom:10px;}
+  .manual-lock{border:1px dashed var(--line);background:#FBF9F1;padding:10px 12px;margin-bottom:10px;}
+  .manual-lock label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:6px;}
+  .manual-lock-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .manual-lock select{font:inherit;font-size:14px;padding:7px 8px;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:3px;min-width:0;max-width:100%;flex:1 1 220px;}
   .pick-row{
     display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;
     border:1px solid var(--line);background:#FBF9F1;padding:10px 12px;margin-bottom:6px;
@@ -553,6 +557,11 @@ function pruneMappedPicks(){
   state.mappedPicks = pruned;
 }
 
+function lockManualPick(week){
+  const select = document.getElementById('manualLockSelect');
+  if(select && select.value) lockPick(week, select.value);
+}
+
 function lockPick(week, code){
   if(!state.picks[week]) state.picks[week] = [];
   if(!state.picks[week].includes(code)) state.picks[week].push(code);
@@ -610,6 +619,25 @@ function renderPanel(){
       html += `<div class="pick-row top"><div class="pt"><div class="pname">${teamLogoImg(code,22)} ${TEAM_NAMES[code]}</div></div>
         <button class="btn ghost small" onclick="unlockPick(${w},'${code}')">Unlock</button></div>`;
     });
+  }
+  // Once games have kicked off they drop out of the candidate list, which also removes their Lock buttons — so a pick
+  // that was made but never recorded can't be locked there. This lets any team that played that week be recorded after
+  // the fact (teams already used elsewhere are excluded), for as many open slots as the week has.
+  const openSlots = (dp ? 2 : 1) - locked.length;
+  if(openSlots > 0 && games.some(g => teamGameStarted(w, g.home))){
+    const options = games
+      .flatMap(g => [{code:g.away, label:`@ ${g.home}`}, {code:g.home, label:`vs ${g.away}`}])
+      .filter(o => !state.usedTeams.includes(o.code))
+      .sort((a,b) => a.code.localeCompare(b.code))
+      .map(o => `<option value="${o.code}">${o.code} (${o.label}) — ${TEAM_NAMES[o.code]}</option>`)
+      .join('');
+    html += `<div class="manual-lock">
+      <label for="manualLockSelect">Games have started this week. Record the pick you made${dp?` (${openSlots} open slot${openSlots>1?'s':''})`:''}:</label>
+      <div class="manual-lock-row">
+        <select id="manualLockSelect">${options}</select>
+        <button class="btn small" onclick="lockManualPick(${w})">Lock pick</button>
+      </div>
+    </div>`;
   }
   if(cached){
     html += renderAnalysisBlock(cached, w, locked);
